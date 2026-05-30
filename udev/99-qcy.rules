@@ -1,0 +1,12 @@
+# QCY Control - udev Rules
+# Permite acesso não-privilegiado aos eventos evdev do fone QCY
+
+# Encontrar o device evdev do QCY H3S
+# execute: evtest | grep -i qcy
+# para identificar o eventX correto
+
+SUBSYSTEM=="input", ATTRS{name}=="*QCY H3S*", MODE="0666", GROUP="input"
+SUBSYSTEM=="input", ATTRS{idVendor}=="3654", ATTRS{idProduct}=="4a55", MODE="0666", GROUP="input"
+
+# Alternativa: dar acesso apenas ao grupo 'input' (recomendado)
+# depois: sudo usermod -aG input $USER

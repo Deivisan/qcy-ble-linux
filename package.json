@@ -1,0 +1,30 @@
+{
+  "name": "qcy-control",
+  "version": "0.1.0",
+  "description": "sistema de controle para fones QCY no linux - cli + daemon + gui",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test",
+    "evtest": "bun run src/cli/evtest.ts",
+    "evtest:real": "bun run src/cli/evtest-real.ts",
+    "status": "bun run src/cli/status.ts",
+    "profile": "bun run src/cli/profile.ts",
+    "daemon": "bun run src/daemon/index.ts",
+    "gui": "bun run src/gui/index.ts"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "chalk": "^5.3.0",
+    "picocolors": "^1.1.1",
+    "conf": "^12.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "bun-types": "latest"
+  }
+}
