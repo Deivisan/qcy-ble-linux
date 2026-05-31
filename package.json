@@ -22,6 +22,7 @@
     "commander": "^12.1.0",
     "conf": "^12.0.0",
     "dbus-next": "^0.10.2",
+    "noble": "^1.9.1",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {

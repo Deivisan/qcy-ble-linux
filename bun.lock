@@ -9,6 +9,7 @@
         "commander": "^12.1.0",
         "conf": "^12.0.0",
         "dbus-next": "^0.10.2",
+        "noble": "^1.9.1",
         "picocolors": "^1.1.1",
       },
       "devDependencies": {
@@ -52,6 +53,10 @@
 
     "bindings": ["bindings@1.5.0", "", { "dependencies": { "file-uri-to-path": "1.0.0" } }, "sha512-p2q/t/mhvuOj/UeLlV6566GD/guowlr0hHxClI0W9m7MWYkL1F0hLo+0Aexs9HSPCtR1SXQ0TD3MMKrXZajbiQ=="],
 
+    "bluetooth-hci-socket": ["bluetooth-hci-socket@0.5.1", "", { "dependencies": { "debug": "^2.2.0", "nan": "^2.0.5" }, "optionalDependencies": { "usb": "^1.1.0" }, "os": [ "linux", "win32", "android", ] }, "sha512-5/cPO2R+X4UXLudZOevREf3kwyCNCVovA9rcXk5smBgx+q/sIucfkC6F57+xWR5X17bY931w6bB2EUaPh9ArfQ=="],
+
+    "bplist-parser": ["bplist-parser@0.0.6", "", {}, "sha512-fGeghPEH4Eytvf+Mi446aKcDqvkA/+eh6r7QGiZWMQG6TzqrnsToLP379XFfqRSZ41+676hhGIm++maNST1Apw=="],
+
     "brace-expansion": ["brace-expansion@1.1.15", "", { "dependencies": { "balanced-match": "^1.0.0", "concat-map": "0.0.1" } }, "sha512-EwOCDEex4quD37XhqM3omwtMoJjr//isUZz1JopUNWms+4Z2ViyM/k1YIRePpoVNnQhENnxtFjLaxNHrT7xIUg=="],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
@@ -81,6 +86,8 @@
     "dbus-next": ["dbus-next@0.10.2", "", { "dependencies": { "@nornagon/put": "0.0.8", "event-stream": "3.3.4", "hexy": "^0.2.10", "jsbi": "^2.0.5", "long": "^4.0.0", "safe-buffer": "^5.1.1", "xml2js": "^0.4.17" }, "optionalDependencies": { "usocket": "^0.3.0" } }, "sha512-kLNQoadPstLgKKGIXKrnRsMgtAK/o+ix3ZmcfTfvBHzghiO9yHXpoKImGnB50EXwnfSFaSAullW/7UrSkAISSQ=="],
 
     "debounce-fn": ["debounce-fn@5.1.2", "", { "dependencies": { "mimic-fn": "^4.0.0" } }, "sha512-Sr4SdOZ4vw6eQDvPYNxHogvrxmCIld/VenC5JbNrFwMiwd7lY/Z18ZFfo+EWNG4DD9nFlAujWAo/wGuOPHmy5A=="],
+
+    "debug": ["debug@2.2.0", "", { "dependencies": { "ms": "0.7.1" } }, "sha512-X0rGvJcskG1c3TgSCPqHJ0XJgwlcvOC7elJ5Y0hYuKBZoVqWpAMfLOeIh2UI/DCQ5ruodIjvsugZtjUYUw2pUw=="],
 
     "delayed-stream": ["delayed-stream@1.0.0", "", {}, "sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ=="],
 
@@ -182,9 +189,17 @@
 
     "mkdirp": ["mkdirp@1.0.4", "", { "bin": { "mkdirp": "bin/cmd.js" } }, "sha512-vVqVZQyf3WLx2Shd0qJ9xuvqgAyKPLAiqITEtqW0oIUjzo3PePDd6fW9iFz30ef7Ysp/oiWqbhszeGWW2T6Gzw=="],
 
+    "ms": ["ms@0.7.1", "", {}, "sha512-lRLiIR9fSNpnP6TC4v8+4OU7oStC01esuNowdQ34L+Gk8e5Puoc88IqJ+XAY/B3Mn2ZKis8l8HX90oU8ivzUHg=="],
+
     "nan": ["nan@2.27.0", "", {}, "sha512-hC+0LidcL3XE4rp1C4H54KujgXKzbfyTngZTwBByQxsOxCEKZT0MPQ4hOKUH2jU1OYstqdDH4onyHPDzcV0XdQ=="],
 
+    "noble": ["noble@1.9.1", "", { "dependencies": { "debug": "~2.2.0" }, "optionalDependencies": { "bluetooth-hci-socket": "^0.5.1", "bplist-parser": "0.0.6", "xpc-connection": "~0.1.4" }, "os": [ "!aix", "!sunos", "!android", "!openbsd", ] }, "sha512-5sbPLvCh1zJqy5caq+oQQE9eYoXB/ePweLWuN8UeapWO6KgFu4SS0VeLmYc23HTfWAXKb/ey6rtEvHwn9aY5Iw=="],
+
+    "node-addon-api": ["node-addon-api@4.3.0", "", {}, "sha512-73sE9+3UaLYYFmDsFZnqCInzPyh3MqIwZO9cw58yIqAZhONrrabrYyYe3TuIqtIiOuTXVhsGau8hcrhhwSsDIQ=="],
+
     "node-gyp": ["node-gyp@7.1.2", "", { "dependencies": { "env-paths": "^2.2.0", "glob": "^7.1.4", "graceful-fs": "^4.2.3", "nopt": "^5.0.0", "npmlog": "^4.1.2", "request": "^2.88.2", "rimraf": "^3.0.2", "semver": "^7.3.2", "tar": "^6.0.2", "which": "^2.0.2" }, "bin": { "node-gyp": "bin/node-gyp.js" } }, "sha512-CbpcIo7C3eMu3dL1c3d0xw449fHIGALIJsRP4DDPHpyiW8vcriNY7ubh9TE4zEKfSxscY7PjeFnshE7h75ynjQ=="],
+
+    "node-gyp-build": ["node-gyp-build@4.8.4", "", { "bin": { "node-gyp-build": "bin.js", "node-gyp-build-optional": "optional.js", "node-gyp-build-test": "build-test.js" } }, "sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ=="],
 
     "nopt": ["nopt@5.0.0", "", { "dependencies": { "abbrev": "1" }, "bin": { "nopt": "bin/nopt.js" } }, "sha512-Tbj67rffqceeLpcRXrT7vKAN8CwfPeIBgM7E6iBkmKLV7bEMwpGgYLGv0jACUsECaa/vuxP0IjEont6umdMgtQ=="],
 
@@ -268,6 +283,8 @@
 
     "uri-js": ["uri-js@4.4.1", "", { "dependencies": { "punycode": "^2.1.0" } }, "sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg=="],
 
+    "usb": ["usb@1.9.2", "", { "dependencies": { "node-addon-api": "^4.2.0", "node-gyp-build": "^4.3.0" } }, "sha512-dryNz030LWBPAf6gj8vyq0Iev3vPbCLHCT8dBw3gQRXRzVNsIdeuU+VjPp3ksmSPkeMAl1k+kQ14Ij0QHyeiAg=="],
+
     "usocket": ["usocket@0.3.0", "", { "dependencies": { "bindings": "^1.5.0", "nan": "^2.14.2", "node-gyp": "^7.1.2" } }, "sha512-V/H02RNiaOCJZuPoKont/y12VJaImC6C5xW7OzPFjYu9qnig0yv9hyp9E7Wqjm6d8yZuZouH3NAfDATVMgh2SQ=="],
 
     "util-deprecate": ["util-deprecate@1.0.2", "", {}, "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw=="],
@@ -287,6 +304,8 @@
     "xml2js": ["xml2js@0.4.23", "", { "dependencies": { "sax": ">=0.6.0", "xmlbuilder": "~11.0.0" } }, "sha512-ySPiMjM0+pLDftHgXY4By0uswI3SPKLDw/i3UXbnO8M/p28zqexCUoPmQFrYD+/1BzhGJSs2i1ERWKJAtiLrug=="],
 
     "xmlbuilder": ["xmlbuilder@11.0.1", "", {}, "sha512-fDlsI/kFEx7gLvbecc0/ohLG50fugQp8ryHzMTuW9vSa1GJ0XYWKnhsUx7oie3G98+r56aTQIUB4kht42R3JvA=="],
+
+    "xpc-connection": ["xpc-connection@0.1.4", "", { "dependencies": { "nan": "^2.0.5" }, "os": "darwin" }, "sha512-Np4+cx5l9zhSNrH5O5niVqVT0vBnja4IG5CxuBgCvTdWGiyujRwUTSj/FtT66KX84/MMCKpt5wIcuORBMFT6qQ=="],
 
     "yallist": ["yallist@4.0.0", "", {}, "sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A=="],
 
