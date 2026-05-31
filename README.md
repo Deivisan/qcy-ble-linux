@@ -89,3 +89,29 @@ src/
 - [pipewire - sound configuration](https://wiki.archlinux.org/title/pipewire)
 - [bluez - bluetooth configuration](https://wiki.archlinux.org/title/bluetooth)
 - [evdev - linux input events](https://www.kernel.org/doc/html/latest/input/evdev.html)
+
+## 🧾 contexto atual do host
+
+- o fone QCY H3S está **conectado via bluetooth** e deve permanecer assim enquanto você estiver usando
+- o dispositivo aparece com UUIDs de:
+  - `Audio Sink`
+  - `A/V Remote Control Target`
+  - `A/V Remote Control`
+  - `Handsfree`
+- o sistema expõe o headset como `QCY H3S (AVRCP)` em `event19`
+- o PipeWire/WirePlumber já vê o fone como dispositivo bluez e como sink de áudio ativo
+- o próximo passo seguro é **observar e mapear**, não reconectar nem desconectar
+
+## 🔭 próximos passos sugeridos
+
+1. mapear quais códigos chegam em `event19` quando você aperta os botões do fone
+2. separar ações simples de ações compostas por clique duplo/triplo
+3. decidir a camada de automação:
+	- `MPRIS` para mídia
+	- `evdev` para eventos crus
+	- `daemon` para regras customizadas
+4. começar a desenhar a GUI pensando em:
+	- perfis
+	- botões
+	- ações
+	- prioridade de comportamento

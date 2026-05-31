@@ -11,3 +11,10 @@ bun.lockb
 .env.local
 ~/.config/qcy/
 *.wav
+
+# APK e análise estática (não subir binários grandes)
+apks/
+analysis/apktool/
+analysis/original/
+tools/
+docs/
