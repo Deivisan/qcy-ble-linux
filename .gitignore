@@ -17,4 +17,6 @@ apks/
 analysis/apktool/
 analysis/original/
 tools/
-docs/
+
+# docs: ignore generic markdown files but keep images folder
+docs/*.md
