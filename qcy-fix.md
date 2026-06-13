@@ -12,6 +12,14 @@
 > - Alternância de perfil (**A2DP ↔ headset-head-unit**) funcionando corretamente.
 > - Sem necessidade de script/helper paralelo.
 
+> **Regressão corrigida de verdade (2026-06-05): ✅ RESOLVIDO com validação iterativa**
+> - A correção inicial de 2026-06-05 foi específica demais: forçar mSBC podia até criar source e captar por alguns segundos, mas voltava a quebrar transporte (`Failure in Bluetooth audio transport`, `SEP in bad state`, `NotAuthorized`) e/ou cair em silêncio.
+> - A causa raiz operacional é a combinação **QCY H3S + UGREEN BT6 + kernel 7.0.x + BlueZ/PipeWire**: depois de restart/reconnect o primeiro transporte HFP pode subir mudo, e mSBC é instável neste adaptador. Não basta verificar que o source existe; precisa gravar e medir sinal.
+> - Fix persistente atual: `/etc/wireplumber/wireplumber.conf.d/50-bt-hfp-fix.conf` com `bluez5.enable-msbc = false`, `bluez5.hw-offload-sco = false`, roles completas `[ a2dp_sink a2dp_source hsp_hs hfp_hf hfp_ag ]`, `device.profile = "headset-head-unit"` e persistent storage desativado para não ressuscitar estado ruim.
+> - Removi/desativei config conflitante de usuário em `~/.config/wireplumber/wireplumber.conf.d/50-bluetooth.conf`.
+> - Criei `scripts/qcy-mic-recover.sh`: ele reescreve a config, reinicia stack, reconecta, arma HFP, faz warmup, grava WAV e só aprova se `rms/absmax/nonzero` forem reais. Se CVSD falhar, tenta mSBC automaticamente.
+> - Validação final do recuperador: `/tmp/qcy-cvsd.wav` com `rms=10.785`, `absmax=976`, `nonzero=74252/671744` — microfone realmente captando.
+
 ---
 
 ## 📱 IDENTIFICAÇÃO DO DISPOSITIVO
@@ -272,6 +280,16 @@ Enquanto isso, o **cabo USB** funciona perfeitamente com áudio + microfone.
 ## 🛠️ Playbook de recuperação rápida (3 comandos)
 
 Use este bloco quando o mic BT parar de captar ou o perfil travar em A2DP:
+
+### Método atual recomendado (valida sinal real)
+
+```bash
+scripts/qcy-mic-recover.sh
+```
+
+Esse script não confia em UI nem em existência do source. Ele testa gravação real e falha se `rms`, `absmax` e `nonzero` indicarem silêncio.
+
+### Método manual legado
 
 ```bash
 # 1) Reinicia stack de áudio e Bluetooth
