@@ -20,3 +20,31 @@ tools/
 
 # docs: ignore generic markdown files but keep images folder
 docs/*.md
+
+# === Experimentos e debug (thread mic/HFP separado — não forçar sem permissão explícita) ===
+# Deixe para sessões futuras com agentes mais inteligentes.
+analysis/*.md
+analysis/debug-*.md
+analysis/jieli-*.md
+scripts/__pycache__/
+scripts/*.bak
+scripts/dump-*.ts
+scripts/freeze-watch.sh
+scripts/qcy-bluetooth-supreme.sh
+scripts/qcy-spp-*.py
+scripts/qcy-spp-*.c
+scripts/qcy-spp-socat.sh
+scripts/qcy-sudo.sh
+scripts/transcription-safe.sh
+scripts/try-spp.ts
+scripts/train-*.sh
+src/train-*.ts
+src/lib/ble-qcy-spp.ts
+src/lib/qcy-unified.ts
+src/lib/spp/
+
+# Mantém no core: 
+# - scripts/qcy-mic-recover.sh (workaround útil)
+# - bin/qcy-ctl e bin/qcy-spp-raw (entregáveis SPP/RFCOMM)
+# - src/lib/spp/qcy-spp-exec.ts + integração no ble.ts (depois de validar)
+# - ESTADO_ATUAL.md, README.md, qcy-fix.md (sempre atualizados)

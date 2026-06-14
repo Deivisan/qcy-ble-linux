@@ -17,8 +17,10 @@ write_conf() {
   local label="$2"
   sudo install -d -m 0755 "$(dirname "$conf")"
   sudo tee "$conf" >/dev/null <<EOF
-# qcy h3s + ugreen bt6: gerado por scripts/qcy-mic-recover.sh
+# qcy h3s + ugreen bt6.0 (33fa:0012) + kernel 7.0.x-cachyos
+# gerado por scripts/qcy-mic-recover.sh
 # modo validado por captura real: ${label}
+# objetivo: evitar ressurreição de estado ruim após crashes de BrowserOS/SODA
 monitor.bluez.properties = {
   bluez5.enable-msbc = ${msbc}
   bluez5.enable-sbc-xq = true
@@ -165,6 +167,22 @@ try_mode() {
 
 main() {
   log "🔧 recuperação completa do microfone qcy (${mac})"
+  log "   dongle: UGREEN BT6.0 (33fa:0012) | QCY MAC: ${mac}"
+
+  # 🛡️ GUARD: detectar agentes pesados de transcrição (BrowserOS/SODA/open-whispr)
+  #    Isso protege o lado BLUETOOTH (HFP/SCO). O cabo USB sempre funcionou sozinho, então não mexemos nele.
+  if pgrep -f -i "browseros\|soda\|open-whispr\|whisper\|speechrecognition" >/dev/null 2>&1; then
+    fail "🛑 AGENTES PESADOS DETECTADOS (BrowserOS/SODA/open-whispr etc.)"
+    warn "   Forçar HFP/SCO (bluetooth mic) agora com esses processos rodando causa freeze (SCO corrupted + lag_detector)."
+    warn "   Rode primeiro: ./scripts/transcription-safe.sh  (ele mata os agentes pesados)"
+    warn "   Ou mate os processos manualmente e rode este script só se quiser usar o microfone do QCY via Bluetooth (com risco)."
+    warn "   Para forçar mesmo assim: QCY_FORCE_BT=1 $0"
+    if [[ "${QCY_FORCE_BT:-}" != "1" ]]; then
+      exit 1
+    else
+      warn "   ⚠️ FORÇADO PELO USUÁRIO (QCY_FORCE_BT=1). Risco de travamento aceito."
+    fi
+  fi
 
   if [[ -f "$user_conf" ]]; then
     warn "⚠️ desativando config de usuário conflitante: ${user_conf}"

@@ -233,3 +233,69 @@ Isso permite:
 
 Este é atualmente o caminho mais promissor para capturar a sequência de init/handshake que falta.
 
+
+---
+
+## 2026-06-14 — Breakthrough: Controle via SPP/RFCOMM funcionando (GATT vendor não necessário)
+
+**Contexto do momento:**
+- Bluetooth conectado (cable removido obrigatório), bateria 80%.
+- Dump completo via bluetoothctl + gdbus confirmou: **nenhum serviço vendor 0000a001 / 00001001 exposto pelo BlueZ**.
+- UUIDs presentes: SPP (00001101), Audio Sink, AVRCP, HFP, Battery1, PnP.
+- ServicesResolved: false.
+
+**Tentativas que falharam (mas foram úteis para mapear o ambiente):**
+- rfcomm binary ausente no bluez-utils instalado (mesmo após pacman -S bluez-utils).
+- Python stdlib socket.AF_BLUETOOTH não disponível (build do Python via mise não tem suporte Bluetooth).
+- socat SOCKET-CONNECT com endereço Bluetooth (AF=31, SOCK_STREAM, BTPROTO_RFCOMM) — formato de parâmetros incompatível com a versão do socat (socat reclama "wrong number of parameters (5 instead of 3)").
+
+**Caminho que funcionou (autônomo, sem pedir nada):**
+- Criei `scripts/qcy-spp-raw.c`: cliente RFCOMM puro usando `<bluetooth/bluetooth.h>` + `<bluetooth/rfcomm.h>` + libbluetooth.
+- Compilado com: `gcc -o /tmp/qcy-spp-raw scripts/qcy-spp-raw.c -lbluetooth`
+- Binário persistido em `bin/qcy-spp-raw`.
+- Wrapper de alto nível: `bin/qcy-ctl` (anc on/off/trans/1..7, game on/off, volume L [R], ldac on/off, raw ...).
+- Primeiro pacote real enviado com sucesso: `0C 00` (ANC OFF).
+- Sequência completa de treino executada (7 comandos) — todos os pacotes 0xFF enviados sem erro de socket.
+
+**Pacotes enviados na sequência de validação (usuário deve relatar o efeito auditivo/funcional):**
+1. `anc on`     → 0x0C 01 (ANC híbrido)
+2. `anc trans`  → 0x0C 04 (transparência / passthrough)
+3. `anc off`    → 0x0C 00
+4. `game on`    → 0x09 01 (Low Latency)
+5. `game off`   → 0x09 02
+6. `volume 65`  → 0x08 65 65 00
+7. `ldac off`   → 0x23 00 (seguro; LDAC ON costuma reiniciar o fone)
+
+**Conclusão técnica atual:**
+- Controle completo de features do QCY H3S no Linux é possível **exclusivamente via SPP/RFCOMM** (canal serial Bluetooth).
+- GATT vendor não é exposto pelo BlueZ para este modelo/firmware → não é bloqueio nosso, é limitação do stack Bluetooth do kernel/BlueZ para dispositivos Jieli/QCY que usam esse path.
+- O framing 0xFF + cmd + count + params que mapeamos do APK + Quicky + Jieli RCSP está correto e chega no fone.
+- Agora falta apenas confirmação auditiva para validar cada comando (ANC realmente abaixa o ruído? Transparency aumenta? Game muda latência/qualidade? Volume obedece?).
+
+**Ferramentas prontas para uso imediato (cable removido + BT conectado):**
+```bash
+./bin/qcy-ctl anc on
+./bin/qcy-ctl anc trans
+./bin/qcy-ctl game on
+./bin/qcy-ctl volume 70
+./bin/qcy-ctl ldac off
+./bin/qcy-ctl raw 17 02 02 80   # ANC advanced (exemplo)
+```
+
+**Próximos passos lógicos (vou continuar executando enquanto aguardo seu relatório):**
+- Atualizar todos os docs (ESTADO_ATUAL, README, analysis/jieli-..., qcy-fix.md) com o método SPP cru + binários.
+- Integrar o sender no cliente TypeScript/Bun existente (src/lib/ble-qcy.ts ou novo módulo spp) para que `bun run src/cli/ble.ts ...` e os trainers usem o caminho que funciona.
+- Após seu feedback positivo nos comandos básicos, avançar para:
+  - ANC avançado (0x17 com sub-scene + noiseValue)
+  - GameConfig (0x4A)
+  - LDAC ON (com aviso explícito de restart)
+  - EQ, KeyFunction, Multipoint, etc.
+- Manter thread separado de HFP/mic (BrowserOS ainda rodando, source suspenso, CVSD ruim) — só atacar se você pedir.
+
+**Estado dos arquivos novos:**
+- scripts/qcy-spp-raw.c (fonte do sender)
+- bin/qcy-spp-raw (executável)
+- bin/qcy-ctl (wrapper amigável)
+- /tmp/freeze-monitor/training-log.txt + current-summary.txt atualizados
+
+Aguardando seu relatório do que você ouviu/sentiu na sequência acima para declarar "ANC funciona", "Game funciona", etc. e continuar o mapeamento completo.

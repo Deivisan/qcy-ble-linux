@@ -77,7 +77,7 @@ async function cmdANC(modeStr: string): Promise<void> {
       process.exit(1);
   }
 
-  await ctrl.setANCmode(mode);
+  await ctrl.setANCMode(mode);
   console.log(chalk.green(`✅ ANC definido para: ${modeStr}`));
   await ctrl.disconnect();
 }
@@ -95,7 +95,7 @@ async function cmdLatency(on: boolean): Promise<void> {
   const mac = await getMAC();
   const ctrl = new QCYController();
   await ctrl.connect(mac);
-  await ctrl.setGameMode(on);
+  await ctrl.setLowLatency(on);
   console.log(chalk.green(`✅ game mode: ${on ? 'ON' : 'OFF'}`));
   await ctrl.disconnect();
 }

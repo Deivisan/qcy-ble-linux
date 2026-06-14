@@ -13,6 +13,8 @@ const execAsync = promisify(exec);
 
 const PROFILE_A2DP = 'a2dp-sink';
 const PROFILE_HFP = 'headset-head-unit';
+// com bluez5.enable-msbc=false, o perfil cvsd é exposto como headset-head-unit.
+const PROFILE_HFP_CVSD = 'headset-head-unit';
 
 interface ProfileSwitchOptions {
   deviceMac?: string;
@@ -32,11 +34,44 @@ async function getCardName(mac: string): Promise<string | null> {
   }
 }
 
+async function detectUsbQcy(): Promise<{ card: string | null; source: string | null }> {
+  try {
+    const { stdout } = await execAsync('pactl list cards short');
+    const line = stdout.split('\n').find(l => /3654:4a55|jieli.*qcy|qcy h3s/i.test(l));
+    if (line) {
+      const card = line.split('\t')[1];
+      const usbSource = 'alsa_input.usb-Jieli_Technology_QCY_H3S_433132373431352E-00.mono-fallback';
+      return { card, source: usbSource };
+    }
+    return { card: null, source: null };
+  } catch {
+    return { card: null, source: null };
+  }
+}
+
+async function detectHeavyAgents(): Promise<string[]> {
+  try {
+    const { stdout } = await execAsync('ps aux');
+    const agents: string[] = [];
+    const patterns = ['browseros', 'soda', 'open-whispr', 'whisper', 'SpeechRecognitionService'];
+    for (const p of patterns) {
+      if (new RegExp(p, 'i').test(stdout)) agents.push(p);
+    }
+    return agents;
+  } catch {
+    return [];
+  }
+}
+
 async function getActiveProfile(card: string): Promise<string | null> {
   try {
-    const { stdout } = await execAsync(`pactl get-card-profile ${card}`);
-    const match = stdout.match(/Active Profile:\s+(.+)/);
-    return match ? match[1].trim() : null;
+    const { stdout } = await execAsync('pactl list cards');
+    const cardBlock = stdout
+      .split(/\n(?=Card #)/)
+      .find(block => block.includes(`Name: ${card}`)) || '';
+    const cardMatch = cardBlock.match(/Active Profile:\s+(.+)/);
+    if (cardMatch) return cardMatch[1].trim();
+    return null;
   } catch {
     return null;
   }
@@ -46,14 +81,39 @@ async function setProfile(card: string, profile: string): Promise<void> {
   await execAsync(`pactl set-card-profile ${card} ${profile}`);
 }
 
+async function configureQcySource(mac: string): Promise<void> {
+  const source = `bluez_input.${mac}`;
+  await execAsync(`pactl set-source-mute ${source} 0`).catch(() => {});
+  await execAsync(`pactl set-source-volume ${source} 100%`).catch(() => {});
+  await execAsync(`pactl set-default-source ${source}`).catch(() => {});
+}
+
 async function switchProfile(targetProfile: string, options: ProfileSwitchOptions = {}): Promise<void> {
   const mac = options.deviceMac || '84:AC:60:05:55:2C';
+
+  // 🛡️ Heavy agent guard before allowing HFP/SCO (bluetooth only)
+  //    O cabo USB do QCY sempre funcionou estável sozinho. Não mexemos no comportamento do cabo.
+  //    Essa proteção é só para impedir forçar headset-head-unit (HFP/SCO bluetooth) quando tem BrowserOS etc. rodando.
+  const heavy = await detectHeavyAgents();
+  const isHfp = targetProfile.includes('headset');
+  if (heavy.length > 0 && isHfp) {
+    console.log(chalk.red('\n🚨 AGENTES PESADOS DETECTADOS:'));
+    console.log(`   ${heavy.join(', ')}`);
+    console.log(chalk.red('   Forçar perfil HFP/SCO (headset-head-unit) no Bluetooth enquanto BrowserOS/SODA/open-whispr rodam causa travamentos (SCO corrupted + lag_detector).'));
+    console.log(chalk.yellow('   Recomendado: rode primeiro ./scripts/transcription-safe.sh (mata os agentes)'));
+    if (!options.force) {
+      console.log(chalk.red('   Abortando. Use --force para ignorar (risco de freeze no BT).'));
+      return;
+    } else {
+      console.log(chalk.yellow('   ⚠️ --force usado. Prosseguindo com risco aceito pelo usuário.'));
+    }
+  }
+
   console.log(chalk.cyan(`🔄 verificando dispositivo ${mac}...`));
 
   const card = await getCardName(mac);
   if (!card) {
-    throw new Error(`card bluetooth não encontrado para ${mac}. '
-      'verifique se o dispositivo está conectado.`);
+    throw new Error(`card bluetooth não encontrado para ${mac}. verifique se o dispositivo está conectado.`);
   }
 
   console.log(chalk.gray(`card: ${card}`));
@@ -74,6 +134,10 @@ async function switchProfile(targetProfile: string, options: ProfileSwitchOption
   const newProfile = await getActiveProfile(card);
 
   if (newProfile === targetProfile) {
+    if (targetProfile.includes('headset')) {
+      await configureQcySource(mac);
+      console.log(chalk.green(`🎙️ source padrão ajustado: bluez_input.${mac}`));
+    }
     console.log(chalk.green(`✅ perfil alterado para ${targetProfile}`));
   } else {
     console.log(chalk.red(`❌ falha: ainda em ${newProfile}`));
@@ -87,6 +151,10 @@ export async function toA2DP(options: ProfileSwitchOptions): Promise<void> {
 
 export async function toHFP(options: ProfileSwitchOptions): Promise<void> {
   await switchProfile(PROFILE_HFP, options);
+}
+
+export async function toHFPCVSD(options: ProfileSwitchOptions): Promise<void> {
+  await switchProfile(PROFILE_HFP_CVSD, options);
 }
 
 export async function toggle(options: ProfileSwitchOptions = {}): Promise<void> {
@@ -115,6 +183,9 @@ if (import.meta.main) {
     case 'hfp':
       toHFP(opts).catch(console.error);
       break;
+    case 'hfp-cvsd':
+      toHFPCVSD(opts).catch(console.error);
+      break;
     case 'toggle':
       toggle(opts).catch(console.error);
       break;
@@ -128,15 +199,21 @@ uso:
 comandos:
   a2dp      mudar para perfil a2dp (alta qualidade, sem mic)
   hfp       mudar para perfil hfp/hsp (com microfone, qualidade reduzida)
+  hfp-cvsd  fallback hfp/hsp cvsd (usar só se msbc falhar)
   toggle    alternar entre perfis automaticamente
 
 opções:
   --mac <endereço>   mac address do dispositivo (padrão: 84:AC:60:05:55:2C)
   --force            forçar mudança mesmo se já estiver no perfil
 
+🛡️  Guards automáticos (2026-06-12):
+  - Detecta QCY via USB (cabo) → prefere perfil mono USB estável (sem SCO).
+  - Detecta BrowserOS/SODA/open-whispr → bloqueia HFP/SCO a menos que --force.
+  - Recomendado para transcrição: ./scripts/transcription-safe.sh
+
 exemplos:
   bun run src/cli/profile.ts a2dp
-  bun run src/cli/profile.ts hfp --force
+  bun run src/cli/profile.ts hfp --force   # só se souber o risco
 `);
   }
 }

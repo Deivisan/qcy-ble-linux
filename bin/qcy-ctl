@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# qcy-ctl — Controle QCY H3S via SPP/RFCOMM (Linux)
+# Requer: Bluetooth conectado + cabo USB removido.
+#
+# Binário baixo nível: bin/qcy-spp-raw (C + libbluetooth)
+#
+# Comandos:
+#   anc <off|on|trans|out|1..7>
+#   game <on|off>
+#   volume <L> [R]
+#   ldac <on|off>     # cuidado: pode reiniciar o fone
+#   music <play|pause|next|prev>
+#   battery
+#   raw <cmd> [params...]
+#
+# Exemplos:
+#   ./bin/qcy-ctl anc on
+#   ./bin/qcy-ctl anc trans
+#   ./bin/qcy-ctl game on
+#   ./bin/qcy-ctl volume 70
+#   ./bin/qcy-ctl battery
+
+set -euo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/qcy-spp-raw"
+
+if [[ ! -x "$BIN" ]]; then
+  echo "ERRO: $BIN não encontrado ou não executável."
+  echo "Compile com: gcc -o bin/qcy-spp-raw scripts/qcy-spp-raw.c -lbluetooth"
+  exit 1
+fi
+
+cmd="${1:-}"; shift || true
+
+usage() {
+  cat <<'EOF'
+qcy-ctl — QCY H3S (SPP/RFCOMM)
+
+Uso:
+  qcy-ctl anc <off|on|trans|out|1-7>
+  qcy-ctl game <on|off>
+  qcy-ctl volume <L> [R= L]
+  qcy-ctl ldac <on|off>     # ⚠️ pode reiniciar os buds
+  qcy-ctl music <play|pause|next|prev>
+  qcy-ctl battery
+  qcy-ctl raw <cmd_hex> [param_hex ...]
+
+Exemplos:
+  qcy-ctl anc on
+  qcy-ctl anc trans
+  qcy-ctl game on
+  qcy-ctl volume 65
+  qcy-ctl ldac off
+  qcy-ctl raw 0C 01
+EOF
+}
+
+case "$cmd" in
+  anc)
+    m="${1:-off}"
+    case "$m" in
+      off|0)     "$BIN" 0C 00 ;;
+      on|1|anc)  "$BIN" 0C 01 ;;
+      out|3)     "$BIN" 0C 03 ;;
+      trans|4)   "$BIN" 0C 04 ;;
+      1) "$BIN" 0C 0A ;;
+      2) "$BIN" 0C 0B ;;
+      3) "$BIN" 0C 0C ;;
+      4) "$BIN" 0C 0D ;;
+      5) "$BIN" 0C 0E ;;
+      6) "$BIN" 0C 0F ;;
+      7) "$BIN" 0C 10 ;;
+      *) echo "ANC inválido: $m"; usage; exit 1 ;;
+    esac
+    ;;
+  game|lowlatency)
+    a="${1:-off}"
+    if [[ "$a" == on || "$a" == 1 ]]; then "$BIN" 09 01; else "$BIN" 09 02; fi
+    ;;
+  volume|vol)
+    L="${1:-50}"; R="${2:-$L}"
+    "$BIN" 08 "$L" "$R" 00
+    ;;
+  ldac)
+    a="${1:-off}"
+    if [[ "$a" == on || "$a" == 1 ]]; then
+      echo "⚠️  LDAC ON costuma fazer o QCY H3S reiniciar a conexão."
+      "$BIN" 23 01
+    else
+      "$BIN" 23 00
+    fi
+    ;;
+  music)
+    act="${1:-}"
+    case "$act" in
+      play)  "$BIN" 04 01 ;;
+      pause) "$BIN" 04 02 ;;
+      next)  "$BIN" 04 03 ;;
+      prev)  "$BIN" 04 04 ;;
+      *) echo "ação inválida"; usage; exit 1 ;;
+    esac
+    ;;
+  battery|bat)
+    # usa bluetoothctl padrão (não precisa do sender)
+    bluetoothctl info 84:AC:60:05:55:2C | rg -i 'battery percentage' || bluetoothctl info 84:AC:60:05:55:2C | cat
+    ;;
+  raw)
+    "$BIN" "$@"
+    ;;
+  ""|help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "comando desconhecido: $cmd"
+    usage
+    exit 1
+    ;;
+esac

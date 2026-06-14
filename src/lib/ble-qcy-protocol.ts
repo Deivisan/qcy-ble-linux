@@ -60,6 +60,71 @@ export enum QCYCommand {
   RequestData = 0xFE,
 }
 
+/**
+ * RCSP / Jieli concepts (from official Jieli Home SDK + APK reverse)
+ * These are the "capabilities" the device reports and the modes we can set.
+ * The H3S uses a mix of QCY 0xFF framing + Jieli RCSP paths (jl_bt_rcsp / jl_rcsp in the app).
+ */
+export enum JieliSysExpandFunc {
+  SupportMD5 = 0,
+  GameMode = 1,                    // isGameMode / LowLatency
+  SupportSearchDevice = 2,
+  SupportSoundCard = 3,
+  BanEq = 4,
+  SupportExternalFlashTransfer = 5,
+  SupportAnc = 6,                  // supportAnc
+  SupportReadErrorMsg = 7,
+  SupportHearingAssist = 8,
+  SupportAdaptiveANC = 9,          // supportAdaptiveANC
+  SupportDevConfigure = 10,
+  SupportSmartNoPick = 11,
+  SupportSceneDenoising = 12,      // supportSceneDenoising
+  SupportWindNoiseDetection = 13,
+  SupportVocalBooster = 14,
+  SupportDoubleConnection = 15,    // Multipoint / supportDoubleConnection
+}
+
+export enum KeyFunctionId {
+  SwitchANCMode = 0xff,            // KEY_FUNC_ID_SWITCH_ANC_MODE
+}
+
+export enum VoiceModeType {
+  // From Jieli docs + QCY strings: these map to the "current noise processing mode"
+  Off = 0x00,
+  ANC = 0x02,                      // Hybrid Active Noise Cancelling
+  Outdoor = 0x03,
+  Transparency = 0x04,
+  // Transparency sub-levels (1-7) often sent via 0x17 subScene
+  TransparencyL1 = 0x0A,
+  TransparencyL2 = 0x0B,
+  TransparencyL3 = 0x0C,
+  TransparencyL4 = 0x0D,
+  TransparencyL5 = 0x0E,
+  TransparencyL6 = 0x0F,
+  TransparencyL7 = 0x10,
+  // Adaptive / Scene modes reported in SysExpandFunc + onCurrentVoiceMode
+  AdaptiveANC = 0x20,
+  SceneDenoising = 0x21,
+  WindNoiseReduction = 0x22,
+  VocalBooster = 0x23,
+}
+
+/**
+ * High-level "feature flags" we can query/set on a Jieli/QCY device.
+ * Corresponds to SysExpandFunc in the official SDK.
+ */
+export interface JieliDeviceCapabilities {
+  supportAnc: boolean;
+  isGameMode: boolean;
+  supportDoubleConnection: boolean;   // Multipoint
+  supportAdaptiveANC: boolean;
+  supportSceneDenoising: boolean;
+  supportWindNoiseDetection: boolean;
+  supportVocalBooster: boolean;
+  supportHearingAssist: boolean;
+  // Add more as we reverse more from the APK / RCSP
+}
+
 export enum ANCSettingMode {
   OFF = 0x00,
   ANC = 0x02,
