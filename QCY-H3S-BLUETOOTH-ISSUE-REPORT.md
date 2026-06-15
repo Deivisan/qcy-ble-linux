@@ -6,46 +6,50 @@
 
 ---
 
-## Resumo Atual (Estado Real)
+## Resumo Atual (Estado Real - Ainda Não Resolvido)
 
 O fone conecta corretamente em **A2DP** (som de boa qualidade).  
-O profile `headset-head-unit` (mSBC) consegue ser ativado, e o node `bluez_input.84:AC:60:05:55:2C` aparece no PipeWire.
+O profile `headset-head-unit` (mSBC) consegue ser ativado e o node `bluez_input.84:AC:60:05:55:2C` aparece no PipeWire.
 
-**Porém o microfone não funciona de verdade.**  
-O source fica em `SUSPENDED` e não captura áudio utilizável.
+**No entanto, o microfone ainda não é utilizável de verdade.**  
+O source permanece em `SUSPENDED` na grande maioria do tempo e não entrega áudio consistente.
 
-**Erro principal e recorrente no kernel:**
+**Erro principal observado repetidamente no kernel:**
 
 ```log
 Bluetooth: hci0: SCO packet for unknown connection handle XXXX
 ```
 
-Os handles variam constantemente (2934, 375, 3547, 3510, 3037, 0, etc). Isso indica que o dongle Barrot está enviando pacotes SCO em handles que o driver `btusb` não reconhece, mesmo com nosso patch.
+Os handles variam a cada pacote (exemplos recentes: 2934, 375, 3547, 3510, 3037, 0, etc). Isso sugere que o dongle Barrot está enviando pacotes SCO em connection handles que o driver `btusb` não reconhece ou não registrou corretamente.
+
+**Importante:** Tudo ainda é hipótese. Não temos confirmação de que o problema é exclusivamente o bypass de handle. Pode ser timing, firmware do dongle, problema no QCY H3S, ou combinação de fatores.
 
 ---
 
 ## Histórico de Descobertas (em ordem)
 
-### Problemas Identificados
+### Problemas Identificados e Status
 
-1. **Init Byte Corruption (FIXED)**
+1. **Init Byte Corruption**
    - Dongle Barrot envia 1 byte extra no evento HCI.
    - Causava "Unexpected continuation: 1 bytes".
-   - **Solução:** `btusb_barrot_urb_quirk()` + correção de ordem no `btusb_recv_intr()`.
-   - Status: **OK** (zero ocorrências após rebuild).
+   - Patch aplicado via DKMS (`btusb_barrot_urb_quirk()` + correção de ordem).
+   - Status: Parece resolvido (zero ocorrências nos logs recentes).
 
-2. **Conflito ofono + hsphfpd (FIXED)**
-   - Ambos interferiam com o backend nativo do WirePlumber.
-   - `ofono` e `hsphfpd` foram desabilitados, disabled e masked.
+2. **Conflito ofono + hsphfpd**
+   - Interferiam com o backend nativo do WirePlumber.
+   - Ambos desabilitados e maskeados.
+   - Status: Resolvido.
 
-3. **Configuração bluetoothd fragmentada (FIXED)**
-   - `main.conf` e `bluetooth.conf` conflitando.
-   - Unificado em `/etc/bluetooth/main.conf` com `MultiProfile = multiple`.
+3. **Configuração bluetoothd fragmentada**
+   - `main.conf` e `bluetooth.conf` conflitando + chaves inválidas.
+   - Unificado e limpo.
+   - Status: Resolvido.
 
-4. **SCO Handle Validation (AINDA QUEBRADO - Problema Atual)**
-   - QCY H3S / Barrot enviam SCO em handles não registrados.
-   - Patch em `btusb_validate_sco_handle()` não está cobrindo todos os casos.
-   - Resultado: Pacotes SCO são descartados → source fica suspended.
+4. **SCO Handle Validation / Pacotes SCO desconhecidos (Problema Atual)**
+   - Erro recorrente: "SCO packet for unknown connection handle".
+   - Patch parcial em `btusb_validate_sco_handle()` já existe, mas aparentemente insuficiente.
+   - Status: **Ainda não resolvido**. Esta é a principal hipótese atual.
 
 ---
 
@@ -73,23 +77,28 @@ Os handles variam constantemente (2934, 375, 3547, 3510, 3037, 0, etc). Isso ind
 
 ---
 
-## Recomendações para Próximos Agentes
+## Recomendações para Próximos Agentes / Humanos
 
-**Foco principal atual:**
-Melhorar o bypass de SCO handles no driver `btusb`.
+**Estado real:** Ainda não resolvemos o problema do microfone. Tudo que temos são hipóteses fortes baseadas em logs. O erro "SCO packet for unknown connection handle" é o sintoma mais consistente.
 
-**Ideias para investigar:**
-1. Tornar o bypass mais agressivo: aceitar **todos** os handles SCO quando o dongle for Barrot (`vendor=0x33fa`).
-2. Implementar `btusb_add_sco_handle()` dinamicamente quando pacotes SCO chegarem.
-3. Capturar btmon completo durante uma sessão HFP para ver exatamente qual handle o fone está usando.
-4. Testar com `btusb` do kernel mainline mais recente (pode ter melhorias em SCO).
-5. Analisar se o problema é no firmware do dongle Barrot (muitos relatos semelhantes).
+**Próximos passos sugeridos (não execute sem pensar):**
 
-**Regra importante:**
-Nunca matar BrowserOS automaticamente quando o usuário reclamar de microfone picotando (conforme AGENTS.md).
+1. Capturar um `btmon -w /tmp/hfp-sco.btmon` completo enquanto tenta usar o microfone (importante: capture durante uma chamada ou gravação).
+2. Analisar se o handle que aparece nos erros do dmesg é consistente ou realmente varia aleatoriamente.
+3. Tornar o bypass de SCO handle **mais agressivo** (aceitar qualquer handle > 0 quando for Barrot).
+4. Investigar se precisamos chamar `btusb_add_sco_handle()` ou manipular a tabela de conexões SCO manualmente no driver.
+5. Testar se o problema persiste com outro dongle Bluetooth (mesmo que o usuário não queira trocar, para isolamento).
+6. Verificar logs do PipeWire/WirePlumber em nível debug (`WIREPLUMBER_DEBUG=3`) durante uso do microfone.
+
+**Regra importante (AGENTS.md):**
+- NUNCA mate BrowserOS automaticamente quando o usuário reclamar que o microfone está picotando ou inaudível.
+- O usuário já declarou que o problema de microfone é crônico neste hardware (UGREEN + kernel CachyOS) e "tem nada a ver" com BrowserOS.
 
 ---
 
-**Última atualização:** 14/06/2026 - Após 3ª tentativa de patch SCO + análise profunda de logs.
+**Última atualização:** 14 de Junho de 2026  
+**Autor:** DevSan  
+**Status:** Aberto - Hipótese principal = falha no gerenciamento de SCO handles pelo driver btusb para este dongle Barrot.
 
-Este relatório deve ser lido por qualquer agente que for continuar o trabalho.
+Este arquivo deve ser lido por qualquer agente ou pessoa que for continuar trabalhando no problema.
+
