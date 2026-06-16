@@ -1,28 +1,39 @@
-# QCY H3S + UGREEN BT6.0 (Barrot BR8554) - Relatório Completo do Problema
+# QCY H3S Microphone Issue - Complete Report
 
-**Data:** 14 de Junho de 2026  
-**Repositório:** `qcy-ble-linux`  
-**Hardware:** AMD Ryzen 7 5700G + UGREEN Bluetooth 5.4 Dongle (USB ID: `33fa:0012` - Barrot BR8554 chipset) + Fone QCY H3S (MAC: `84:AC:60:05:55:2C`)
+**Date:** June 14, 2026  
+**Repository:** `qcy-ble-linux`  
+**Hardware:** UGREEN BT6.0 (USB ID `33fa:0012` - Barrot BR8554) + QCY H3S (MAC `84:AC:60:05:55:2C`)
 
 ---
 
-## Resumo Atual (Estado Real - Ainda Não Resolvido)
+## Current Real Status (Important Note)
 
-O fone conecta corretamente em **A2DP** (som de boa qualidade).  
-O profile `headset-head-unit` (mSBC) consegue ser ativado e o node `bluez_input.84:AC:60:05:55:2C` aparece no PipeWire.
+**Before the Barrot SCO handle patch**, the microphone had already worked to some degree (HFP profiles appeared and audio could be captured, even if unstable).
 
-**No entanto, o microfone ainda não é utilizável de verdade.**  
-O source permanece em `SUSPENDED` na grande maioria do tempo e não entrega áudio consistente.
+After we applied the `btusb` DKMS patch for Barrot (init byte fix + SCO handle bypass), the situation became worse or at best inconsistent. The microphone is currently **not being properly recognized/used** by the system.
 
-**Erro principal observado repetidamente no kernel:**
+The user’s main complaint is clear:  
+> “Meu sistema não consegue detectar o microfone do meu fone. Ele continua não sendo disponível para uso.”
+
+---
+
+## Main Observed Symptoms
+
+- A2DP (music) works well.
+- `headset-head-unit` and `headset-head-unit-cvsd` profiles appear and can be activated.
+- `bluez_input.84:AC:60:05:55:2C` node exists in PipeWire.
+- However, the input source stays mostly **SUSPENDED** and does not deliver usable microphone audio.
+- Repeated kernel errors:
 
 ```log
 Bluetooth: hci0: SCO packet for unknown connection handle XXXX
 ```
 
-Os handles variam a cada pacote (exemplos recentes: 2934, 375, 3547, 3510, 3037, 0, etc). Isso sugere que o dongle Barrot está enviando pacotes SCO em connection handles que o driver `btusb` não reconhece ou não registrou corretamente.
+Handles seen: 2934, 375, 3547, 3510, 3037, 0, etc (highly variable).
 
-**Importante:** Tudo ainda é hipótese. Não temos confirmação de que o problema é exclusivamente o bypass de handle. Pode ser timing, firmware do dongle, problema no QCY H3S, ou combinação de fatores.
+This suggests the driver is dropping SCO packets because it cannot associate them with a known synchronous connection.
+
+**Critical context:** The SCO handle bypass patch we added may have been too narrow or introduced regression. We should consider reverting or heavily revising it.
 
 ---
 

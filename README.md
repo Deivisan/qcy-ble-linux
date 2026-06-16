@@ -2,7 +2,9 @@
 
 Controle total de fones QCY (H3S testado) no Linux **sem o app Android**.
 
-**Status (2026-06-14):** ✅ **Controle funcional via SPP/RFCOMM**
+**Status (2026-06-15):** ✅ **Controle SPP/RFCOMM** · ✅ **Mic OpenWhispr + BrowserOS** (A2DP música + HFP ao gravar)
+
+Microfone / voz: [docs/MIC-SETUP-FINAL.md](./docs/MIC-SETUP-FINAL.md) — `./scripts/qcy-install-mic-setup.sh`
 
 - GATT vendor (0000a001/00001001) **não é exposto** pelo BlueZ neste dispositivo.
 - Todo o controle real acontece por **SPP/RFCOMM** (UUID 00001101, canal 1).

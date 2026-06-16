@@ -1,0 +1,13 @@
+[Unit]
+Description=QCY H3S - registra microfone como source padrão do sistema
+After=pipewire.service wireplumber.service pipewire-pulse.service
+PartOf=pipewire.service
+
+[Service]
+Type=oneshot
+Environment=QCY_MIC_ALWAYS_HFP=0
+ExecStart=@REPO_ROOT@/scripts/qcy-mic-default.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

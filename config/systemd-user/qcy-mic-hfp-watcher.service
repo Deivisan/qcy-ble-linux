@@ -1,0 +1,15 @@
+[Unit]
+Description=QCY H3S - ativa HFP quando app abre o microfone
+After=pipewire.service pipewire-pulse.service wireplumber.service
+PartOf=pipewire.service
+
+[Service]
+Environment=QCY_MIC_WATCHER=0
+ExecStart=@REPO_ROOT@/scripts/qcy-mic-hfp-watcher.sh
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
+# Desabilitado por padrão — conflita com autoswitch WP:
+# systemctl --user disable qcy-mic-hfp-watcher.service

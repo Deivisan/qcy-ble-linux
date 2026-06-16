@@ -20,6 +20,8 @@ tools/
 
 # docs: ignore generic markdown files but keep images folder
 docs/*.md
+!docs/MIC-SETUP-FINAL.md
+!docs/MIC-QUALITY.md
 
 # === Experimentos e debug (thread mic/HFP separado — não forçar sem permissão explícita) ===
 # Deixe para sessões futuras com agentes mais inteligentes.

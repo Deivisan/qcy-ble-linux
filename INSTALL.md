@@ -152,11 +152,23 @@ sudo udevadm trigger
 sudo bun run evtest:real
 ```
 
-### microfone BT mostra silêncio
-conforme `qcy-fix.md`, o problema pode ser:
-- fone conectado via USB simultaneamente (desconectar USB)
-- perfil em A2DP (mudar para headset-head-unit)
-- needs re-pair after installing WirePlumber config
+### microfone BT / apps não detectam (OpenWhispr, BrowserOS)
+
+Configuração validada em 15/06/2026:
+
+```bash
+./scripts/qcy-install-mic-setup.sh   # instala WirePlumber + systemd + wrapper BrowserOS
+./scripts/qcy-apps-ready.sh          # antes de gravar voz
+./scripts/qcy-mic-diagnose.sh --record
+```
+
+Documentação completa: [docs/MIC-SETUP-FINAL.md](./docs/MIC-SETUP-FINAL.md)
+
+Causas comuns:
+- BrowserOS aberto **sem** o wrapper X11 (AppImage direto = Wayland = 0 mics em A2DP)
+- OpenWhispr com `preferBuiltInMic=true` (placa-mãe desabilitada)
+- fone conectado via USB **e** BT ao mesmo tempo (cabo desliga rádio BT)
+- loopback `53-qcy-bt-mic-visible.conf` reativado (quebra autoswitch)
 
 ### daemon não inicia
 verifique se o caminho em `evdevPath` está correto e acessível.

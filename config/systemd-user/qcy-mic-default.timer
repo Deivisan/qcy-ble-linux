@@ -1,0 +1,9 @@
+[Unit]
+Description=Reaplica mic QCY como padrão após reconexão BT
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=60
+
+[Install]
+WantedBy=timers.target
