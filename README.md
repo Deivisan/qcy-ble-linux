@@ -2,7 +2,9 @@
 
 Controle total de fones QCY (H3S testado) no Linux **sem o app Android**.
 
-**Status (2026-06-15):** ✅ **Controle SPP/RFCOMM** · ✅ **Mic OpenWhispr + BrowserOS** (A2DP música + HFP ao gravar)
+**Status (2026-08-16):** ✅ **Controle SPP/RFCOMM** · ✅ **Mic OpenWhispr + BrowserOS** (A2DP música + HFP ao gravar) · ✅ **Protocolo completo documentado** (72 Cmd IDs, 25 UUIDs, 2 rotas de transporte)
+
+**Protocolo (engenharia reversa):** [analysis/QCY-H3S-PROTOCOL-COMPLETO.md](./analysis/QCY-H3S-PROTOCOL-COMPLETO.md) — capturado de 3 versões do APK oficial (682/689/715).
 
 Microfone / voz: [docs/MIC-SETUP-FINAL.md](./docs/MIC-SETUP-FINAL.md) — `./scripts/qcy-install-mic-setup.sh`
 

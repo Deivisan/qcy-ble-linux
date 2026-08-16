@@ -1,35 +1,66 @@
 # Estado Atual — QCY H3S no Linux
 
-**Atualizado:** 15/06/2026 (noite)  
-**Status:** ✅ Conectado · ✅ Música A2DP/AAC · ✅ Mic OpenWhispr + BrowserOS
+**Atualizado:** 16/08/2026 (manhã)  
+**Status:** ✅ Controle SPP/RFCOMM · ✅ Música A2DP/AAC · ✅ Mic configurado · ✅ Protocolo documentado (72 Cmd IDs)
 
-## Configuração ativa (não mudar sem ler `docs/MIC-SETUP-FINAL.md`)
+## O que está funcionando hoje
 
 | Camada | O quê |
 |--------|--------|
+| Controle fone | `bin/qcy-ctl` via SPP/RFCOMM (ANC, volume, música, game, LDAC) |
 | Perfil música | `a2dp-sink` (AAC) |
 | Perfil mic | `headset-head-unit` **mSBC 16 kHz** sob demanda (fallback CVSD nos scripts) |
 | WirePlumber | `51-qcy-h3s-bt.conf` + `52-qcy-disable-analog-mic.conf` |
 | Autoswitch | `bluetooth.autoswitch-to-headset-profile = true` |
-| Systemd user | `qcy-mic-default.timer` (60s); watcher **off** — só autoswitch WP |
 | BrowserOS | `~/.local/share/browseros/browseros-wrapper.sh` com **X11** |
 | OpenWhispr | `preferBuiltInMic=false` no leveldb |
 | Kernel | `force_scofix=1` (DKMS btusb Barrot) |
 
+## Protocolo — engenharia reversa completa (16/08/2026)
+
+**Documento principal:** [`analysis/QCY-H3S-PROTOCOL-COMPLETO.md`](./analysis/QCY-H3S-PROTOCOL-COMPLETO.md)
+
+Análise feita sobre **3 builds do APK oficial** (682, 689, 715):
+
+- **72 Cmd IDs** mapeados (cmd 0x01..0x48 + 0xFE)
+- **25 UUIDs GATT** capturados (Service `0000A001`, Char `0000ae00` principal)
+- **2 rotas de transporte**: SPP/RFCOMM (funcionando) + GATT Write (identificado, pendente validação)
+- **Modos ANC**: básico via SPP `0x0C` (funcionando) + avançado `0x17` (mode+subSence+noiseValue, pendente)
+- **EQ**: 0x20/0x22/0x46/0x47 — estruturas capturadas, controle pendente
+- **Diferenças entre builds**: 715 é fork health (pedômetro); 682/689 são fone
+
+## Pendências — o que falta fazer
+
+### Alta prioridade
+1. Validar 2-3 comandos GATT no hardware real (`0000ae00` / Service `0000A001`)
+2. Implementar EQ no `qcy-ctl` (0x20/0x22 — presets + custom 10 bandas)
+3. Testar ANC avançado 0x17 (mode/subSence/noiseValue) auditivamente
+4. Implementar canal RX no SPP (hoje só TX — não lemos respostas do fone)
+5. Criar TUI/GUI minimalista sobre o CLI Bun
+
+### Média prioridade
+6. KEYFUN (0x2B) — mapear botões físicos
+7. Bateria pela GATT (`00002a06`) em vez de `bluetoothctl`
+8. Mapear CMDIDs incompletos: 0x06, 0x0A, 0x11, 0x1E, 0x1F, 0x32, 0x3A, 0x3B, 0x3D, 0x3E, 0x3F, 0x43, 0x45, 0xFE
+
+### Baixa prioridade
+9. Perfil EasyEffects DSP (EQ externo sem mexer no firmware)
+10. SPACE_AUDIO / ENV_ADAPTATION / INEAR_SENSITIVITY — testar
+11. TWS_ENABLE / LED_SWITCH / LED_EFFECT — testar
+12. Post-mortem 3 meses do projeto
+
 ## Comandos do dia a dia
 
 ```bash
+./bin/qcy-ctl anc on          # ANC ligado
+./bin/qcy-ctl anc off         # ANC desligado
+./bin/qcy-ctl anc trans       # Modo transparente
+./bin/qcy-ctl volume 70       # Volume L/R
+./bin/qcy-ctl game on         # Low latency
+./bin/qcy-ctl music next      # Próxima faixa
+./bin/qcy-ctl battery         # Bateria
 ./scripts/qcy-install-mic-setup.sh   # reaplica config do repo → sistema
-./scripts/qcy-apps-ready.sh          # antes de gravar voz
-./scripts/qcy-mic-diagnose.sh --record
 ```
-
-## O que estava quebrado (e a causa real)
-
-1. **Mic “inexistente” em apps** — em A2DP, portal Wayland (`wpctl Sources`) ficava vazio.
-2. **BrowserOS** — abria em Wayland; OpenWhispr em X11 (por isso só um funcionava).
-3. **OpenWhispr** — `preferBuiltInMic=true` apontava para placa-mãe desabilitada.
-4. **HFP fixo** — mic aparecia, mas música ficava em modo telefone o tempo todo (revertido).
 
 ## Limitações conhecidas
 
@@ -37,9 +68,11 @@
 - QCY não faz duplex A2DP + HFP simultâneo.
 - Troca A2DP↔HFP ≈ 1–2 s.
 - Cabo Type-C no PC desliga BT; usa stack USB ALSA separado.
+- GATT vendor não exposto pelo BlueZ neste device — controle real via SPP.
 
 ## Documentação
 
+- **Protocolo completo:** `analysis/QCY-H3S-PROTOCOL-COMPLETO.md`
 - **Setup completo:** `docs/MIC-SETUP-FINAL.md`
 - **O que não fazer:** `TENTATIVAS-SEM-SUCESSO.md`
 - **Kernel/dongle:** `KERNEL-BARROT-PATCH-PLAN.md`
