@@ -12,6 +12,10 @@ need_pause=0
 
 pactl subscribe 2>/dev/null | while read -r line; do
   case "$line" in
+    # Gravação iniciada: pausa ANTES da troca de perfil travar com A2DP aberto
+    *"Event 'new' on source-output "*)
+      playerctl -a pause 2>/dev/null || true
+      ;;
     *"Event 'change' on card "*)
       profile="$(pactl list cards 2>/dev/null | awk -v c="$card" '
         $0 ~ "Name: " c { on=1 }
