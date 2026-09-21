@@ -192,4 +192,16 @@ Sequência que quebra:
 
 ---
 
-*Gerado após releitura de todos os scripts, configs e estado live do sistema.*
+## 14. A2DP em reprodução (ex.: música no Chrome) zera o SCO no HFP (21/09/2026)
+
+`parecord` no `bluez_input` com música tocando: perfil troca p/ HSP, `usb_alt=1`,
+`btmon` mostra 5000+ pacotes eSCO sem erro — mas captura = **zeros absolutos**.
+Com a música **pausada**: mesma chamada captura voz forte (absmax 9000+).
+
+Causa: o H3S não faz A2DP+HFP simultâneo; com o stream A2DP aberto o takeover
+do HFP fica incompleto (transport `sep2/fd0` falha no journal) e o SCO sobe
+"oco". Também explica "áudio bugando" no Chrome durante ditado.
+
+Workflow: **pausar a música antes de ditar** (autoswitch volta ao A2DP ~12s
+depois). Não é bug de driver/config — é contenção de perfil. Validado com
+`btmon` + `parecord` em ambas as condições.
