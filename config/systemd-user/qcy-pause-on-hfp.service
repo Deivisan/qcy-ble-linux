@@ -1,0 +1,13 @@
+[Unit]
+Description=QCY H3S - pausa players ao entrar em HFP (evita SCO mudo)
+After=pipewire.service wireplumber.service pipewire-pulse.service
+PartOf=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=@REPO_ROOT@/scripts/qcy-pause-on-hfp.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
