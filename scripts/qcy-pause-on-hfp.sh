@@ -14,6 +14,7 @@ pactl subscribe 2>/dev/null | while read -r line; do
   case "$line" in
     # Gravação iniciada: pausa ANTES da troca de perfil travar com A2DP aberto
     *"Event 'new' on source-output "*)
+      echo "qcy-pause: recording started -> pausing players" | systemd-cat -t qcy-pause -p info
       playerctl -a pause 2>/dev/null || true
       ;;
     *"Event 'change' on card "*)
