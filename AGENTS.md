@@ -4,11 +4,40 @@
 Projeto de engenharia reversa para controle QCY H3S no Linux via SPP/RFCOMM + GATT. O foco principal é o repositório `qcy-ble-linux` que fornece `bin/qcy-ctl` + `scripts/` + CLI Bun para controle de ANC, Volume, Música, Game Mode, LDAC.
 
 ## Stack Atual
+> ⚠️ **Atualizado 25/09/2026.** O AGENTS.md original descrevia um ambiente que
+> **não existe mais**. Realidade verificada nesta data:
+
 - **CLI:** Binário C (`bin/qcy-spp-raw`) + wrapper bash (`bin/qcy-ctl`)
 - **TypeScript/Bun:** `src/cli/ble.ts` delegando para `bin/qcy-ctl`
-- **Hardware:** QCY H3S (`84:AC:60:05:55:2C`) + dongle UGREEN Barrot
-- **SO:** Arch Linux (CachyOS) + KDE Plasma + PipeWire 1.6.8 + WirePlumber 1.6.8
-- **Runtimes:** Bun 1.3.14, Node 25.9.0, Python 3.14.6, Rust 1.96.1
+- **Hardware:** QCY H3S (`84:AC:60:05:55:2C`) + dongle UGREEN Barrot `33fa:0012` (`hci0`)
+- **SO:** **Arch Linux** (não é mais CachyOS) + **COSMIC** (não é mais KDE Plasma)
+- **Kernel:** **`linux-zen 7.2.7-zen1-1`** (não é mais `linux-cachyos 7.0.11`)
+- **Áudio:** PipeWire + WirePlumber 0.5.17, BlueZ 5.87
+- **Runtimes:** Bun 1.3.x, Node 26, Python 3.14, Rust
+
+### Kernel btusb é item obrigatório, não opcional
+O mic **depende** de um `btusb` patcheado (`0.8-barrot1`) em
+`/lib/modules/<kernel>/updates/dkms/btusb.ko`. Ele é perdido a cada troca de
+kernel/distro e foi justamente o que ficou ausente por 3 meses (ver
+`TENTATIVAS-SEM-SUCESSO.md` item 17).
+
+```bash
+./scripts/apply-btusb-esco-count-fix.sh            # (re)instala
+./scripts/apply-btusb-esco-count-fix.sh --check    # confere
+cat /sys/module/btusb/version                      # tem que dizer 0.8-barrot1
+```
+
+Detalhes e a investigação completa: **`docs/KERNEL-BTUSB-BARROT.md`**.
+
+### Regras de Contributors
+- **NUNCA** religar `bluez5.enable-msbc` — medido como inutil neste dongle
+  (negocia certo no ar, áudio 100% mudo, ~400 corrupted SCO/s). E faz o BlueZ
+  escolher sozinho o perfil quebrado. Ver item 15.
+- **Validar áudio por TRANSCRIÇÃO**, nunca por `absmax`/`rms`. Já gerou PASS
+  falso. Use `./scripts/qcy-mic-transcribe.sh`. Ver item 19.
+- Advice de KDE neste repo está obsoleto — o DE é **COSMIC**. Os erros do
+  `cosmic-settings-daemon` no journal são de textura/tema, não de áudio.
+
 
 ## Histórico de Commits (últimos 15)
 ```

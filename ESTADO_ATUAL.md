@@ -1,7 +1,11 @@
 # Estado Atual — QCY H3S no Linux
 
-**Atualizado:** 16/08/2026 (manhã)  
-**Status:** ✅ Controle SPP/RFCOMM · ✅ Música A2DP/AAC · ✅ Mic configurado · ✅ Protocolo documentado (72 Cmd IDs)
+**Atualizado:** 25/09/2026 · **Status:** ✅ Controle SPP/RFCOMM · ✅ Música A2DP/AAC · ✅ **Mic validado por TRANSCRIÇÃO** · ✅ Protocolo documentado (72 Cmd IDs)
+
+> ⚠️ Este arquivo mentia sobre o ambiente. Correções de 25/09/2026:
+> o sistema é **Arch Linux + COSMIC** com `linux-zen 7.2.7-zen1-1` — não é
+> CachyOS/KDE. E o mic **depende de um `btusb` patcheado** que estava
+> perdido. Ver `docs/KERNEL-BTUSB-BARROT.md` e `TENTATIVAS-SEM-SUCESSO.md` 17-19.
 
 ## O que está funcionando hoje
 
@@ -9,14 +13,32 @@
 |--------|--------|
 | Controle fone | `bin/qcy-ctl` via SPP/RFCOMM (ANC, volume, música, game, LDAC) |
 | Perfil música | `a2dp-sink` (AAC) |
-| Perfil mic | `headset-head-unit` **mSBC 16 kHz** sob demanda (fallback CVSD nos scripts) |
-| WirePlumber | `51-qcy-h3s-bt.conf` + `52-qcy-disable-analog-mic.conf` |
+| Perfil mic | `headset-head-unit` **CVSD 8 kHz** (mSBC descartado — item 15) |
+| **Kernel** | **`btusb 0.8-barrot1`** em `updates/dkms/` (patch eSCO count) |
+| WirePlumber | `51-qcy-h3s-bt.conf` com `enable-msbc = false` |
 | Autoswitch | `bluetooth.autoswitch-to-headset-profile = true` |
-| BrowserOS | `~/.local/share/browseros/browseros-wrapper.sh` com **X11** |
-| OpenWhispr | `preferBuiltInMic=false` no leveldb |
-| Kernel | `force_scofix=1` (DKMS btusb Barrot) |
+| COSMIC | default source estável em `bluez_input`; sem erro de áudio no journal |
+| Transcrição | `scripts/qcy-mic-transcribe.sh` (faster-whisper) — veredito real |
+
+## Verificação do mic (25/09/2026) — por transcrição, não por volume
+
+| Cenário | corrupted SCO | Áudio | Transcrição |
+|---------|---------------|-------|-------------|
+| CVSD (config atual) | 2–3 / 20–30s | voz | ✅ frase completa, inteligível |
+| mSBC | 9 812 / 25s | silêncio | `e e e e e e` (lixo) |
+
+O transporte entrega **666 pacotes eSCO/s constantes, sem lacunas** (medido com
+`btmon`). Grava → transcreve → reproduz no fone: ciclo completo validado.
+
+## Ambiente real (verificado, não presumido)
+
+- SO: **Arch Linux** · DE: **COSMIC** (`XDG_CURRENT_DESKTOP=COSMIC`)
+- Kernel: `linux-zen 7.2.7-zen1-1` · PipeWire 1.6.9 · WirePlumber 0.5.17 · BlueZ 5.87
+- Dongle: UGREEN Barrot `33fa:0012` (`hci0`), quirk `BTUSB_BARROT` upstream
+- Wi-Fi em 5 GHz (`wlp7s0`) — sem interferência 2.4 GHz
 
 ## Protocolo — engenharia reversa completa (16/08/2026)
+
 
 **Documento principal:** [`analysis/QCY-H3S-PROTOCOL-COMPLETO.md`](./analysis/QCY-H3S-PROTOCOL-COMPLETO.md)
 

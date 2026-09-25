@@ -205,3 +205,118 @@ do HFP fica incompleto (transport `sep2/fd0` falha no journal) e o SCO sobe
 Workflow: **pausar a música antes de ditar** (autoswitch volta ao A2DP ~12s
 depois). Não é bug de driver/config — é contenção de perfil. Validado com
 `btmon` + `parecord` em ambas as condições.
+
+## 15. mSBC no dongle Barrot 33fa:0012 — DESCARTADO (com medição, 25/09/2026)
+
+⚠️ **Item 15 anterior dizia "mSBC impossível por falta de altsetting"** — isso
+estava **errado/incompleto**. O que realmente acontece está em
+[`docs/KERNEL-BTUSB-BARROT.md`](./docs/KERNEL-BTUSB-BARROT.md). Resumo do que
+foi medido com o btusb patcheado (`0.8-barrot1`):
+
+- A negociação mSBC no ar é **perfeita**: `eSCO`, RX/TX 60 bytes, `Air mode:
+  Transparent`, USB isoc em **alt 3**, frames `dlen 72`, milhares de pacotes
+  capturados no `btmon`.
+- Mas o áudio é **100% mudo**, com ~**9 800 "corrupted SCO packet" em 25s**
+  (~400/s). Transcrição do resultado: `e e e e e e e e` (lixo).
+- Causa: o endpoint isocrono do Barrot no alt 3 entrega quadros de **25 bytes**
+  (`wMaxPacketSize 0x0019`); um frame mSBC precisa de **72**. O
+  `btusb_recv_isoc()` tenta remontar 3 quadros/frame SCO e dessincroniza →
+  `validate_sco_handle()` rejeita → pacote descartado. Alt máximo real do
+  dongle é o 5, com **49 bytes** — insuficiente para 72. **Limite de firmware.**
+
+**Armadilha que make o mic falhar sozinho:** com `bluez5.enable-msbc = true`
+o BlueZ escolhe por conta própria o perfil `headset-head-unit` (codec MSBC,
+**prioridade 6**) em vez do `headset-head-unit-cvsd` (prioridade 5) — e o
+usuário não pediu nada. Por isso `enable-msbc = false` é obrigatório.
+
+### 15b. `force_scofix=1` era o culpado oculto do mSBC
+
+`force_scofix=1` → `HCI_QUIRK_FIXUP_BUFFER_SIZE` → `hci_read_buffer_size()`
+usa `sco_mtu=64` em vez dos **255 que o controlador reporta** (medido no
+`btmon`: `SCO MTU: 255`). O guard `hdev->sco_mtu >= 72` do caminho alt-3/mSBC
+ficava sempre falso. Desligar o `force_scofix` **libera** o alt 3 — e foi
+assim que se descobriu que o alt 3 também não funciona neste hardware. Mantido
+**ligado** por causa do filtro de pacote duplicado (transporte medido em
+666 pacotes eSCO/s constantes, sem lacunas, com e sem).
+
+**Lição:** `force_scofix` tem efeito colateral não óbvio; medir o
+`sco_mtu` real do controlador (`btmon` → `Read Buffer Size`) antes de culpar
+o hardware.
+
+## 16. Chrome/Wispr Flow "não capta" com enumeração OK (22/09/2026)
+
+
+`enumerateDevices()` via CDP lista **"QCY H3S"** em audioinput e `getUserMedia`
+abre stream `live, unmuted` com autoswitch p/ HFP — enumeração NUNCA foi o
+problema (Chrome usa Pulse/pipewire-pulse, não portal; `--ozone-platform` é
+irrelevante p/ mic). Quando o transporte SCO está saudável, o caminho Chrome
+entrega áudio VIVO (validado: CDP gUM + `parecord` simultâneo, absmax=570 em
+sala silenciosa).
+Se o stream abrir `live` mas capturar zeros, o culpado é o transporte SCO
+wedged (ver itens 7/14/15), não o Chrome: recovery = `disconnect/connect` (ou
+restart `bluetooth`), `./scripts/qcy-mic-default.sh`, e UM ciclo limpo
+A2DP→HFP com voz real (testes `parecord` em rajada logo após toggle mSBC/WP
+restart podem dar zeros transitórios — o link eSCO precisa de um ciclo limpo
+para estabilizar; veredito final sempre com VOZ, nunca só silêncio).
+Sites (ex. WhatsApp Web) podem estar presos no device "Padrão" antigo (bug
+Chromium 40275281: `default` deviceId gruda): selecionar **QCY H3S**
+explicitamente no dropdown do mic do site + reiniciar o Chrome após mudar o
+default do sistema.
+## 17. O DKMS btusb-barrot sumiu na troca de distro (25/09/2026)
+
+**Este era o bug real, e ele estava por baixo de todos os outros.** O projeto inteiro foi
+escrito em jun/2026 sobre `linux-cachyos 7.0.11-1-cachyos` com um módulo DKMS
+`btusb-barrot` (patch de eSCO count + bypass de `validate_sco_handle`).
+A máquina hoje é **Arch + `linux-zen 7.2.7-zen1-1`** (instalado 20/09,
+DKMS recriado 23/09). O DKMS do btusb **não foi recriado**:
+
+```
+dkms status   -> so broadcom-wl
+/usr/src/     -> sem btusb-barrot-*
+modinfo -n btusb -> /lib/modules/.../kernel/drivers/bluetooth/btusb.ko.zst   (stock)
+```
+
+Ou seja: **todo o histórico de "mic consertado em junho" virou ficção** — o
+sistema vinha rodando o btusb stock. Sintomas que isso explica, todos
+documentados aqui como "misteriosos": alt 0 em HFP, 466 `corrupted SCO`/boot,
+`SCO packet for unknown connection handle 384`, áudio "horrível".
+
+**Lição:** antes de caçar bug de config, verificar `modinfo -n <modulo>` e
+`cat /sys/module/<modulo>/version`. Toda afirmação "já funcionava" neste repo
+depende do DKMS existir — e ele não sobreviveu à troca de kernel.
+
+## 18. Erros do ambiente que o repo assume errado (25/09/2026)
+
+| Repo assume | Realidade |
+|---|---|
+| `linux-cachyos 7.0.11-1-cachyos` | `linux-zen 7.2.7-zen1-1` (Arch) |
+| CachyOS | Arch Linux puro |
+| KDE Plasma | **COSMIC** (`XDG_CURRENT_DESKTOP=COSMIC`) |
+| `btusb` com DKMS Barrot | stock do kernel, sem patch |
+| advice "KDE → Mostrar dispositivos virtuais" | sem equivalente no COSMIC |
+
+Erros do `cosmic-settings-daemon` / `cosmic-applet-audio` no journal: **nenhum
+de áudio** — só renderização de textura (`Failed to render texture ... import for
+wrong devices`) e tema (`error loading system dark theme`). O default source
+ficou estável em `bluez_input` durante 25s de monitoramento. O COSMIC **não**
+troca o microfone de device.
+
+## 19. Falso positivo de verificação: `absmax` não prova microfone (25/09/2026)
+
+O critério antigo (`absmax>=500 && rms>=30 → PASS`) deu **PASS** para
+gravações que eram ruído de pacote corrompido. Pior: os scripts do repo
+usavam `sample_spec` 48000 Hz e não checavam buracos.
+
+Corrigido nesta sessão:
+- `scripts/qcy-audio-analyze.py` — floor de ruído, % de frames com sinal, maior
+  buraco interno, clipping. Só marca FALHA em casos duros; pausa natural de fala
+  virou informação, não reprovação.
+- `scripts/qcy-mic-transcribe.sh` + `scripts/qcy-transcribe.py` — **veredito
+  real por transcrição** (faster-whisper, modelo `small`, `pt`).
+- `scripts/qcy-mic-diagnose.sh` L6 — vereditos novos
+  (`FAIL_SILENCIO` / `FAIL_ESCASO` / `FALHA_SO_RUIDO` / `QUEBRADO` /
+  `CANDIDATO_OK`), e `PASS` deixou de existir.
+- `qcy-mic-quality-test.sh` ainda usa `ok=1` por absmax — **não confiar** nele.
+
+**Lição:** validação de áudio de Bluetooth tem de ser por texto, não por
+número. Barulho tem absmax alto.

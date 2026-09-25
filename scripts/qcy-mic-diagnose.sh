@@ -158,25 +158,60 @@ if [[ "$do_record" != 1 ]]; then
 else
   wav="/tmp/qcy-diagnose-${ts}.wav"
   info "Gravando 4s de $loopback — FALE NO FONE AGORA..."
-  timeout 4 parecord -d "$loopback" "$wav" 2>/dev/null || true
+  timeout 6 parecord -d "$loopback" "$wav" 2>/dev/null || true
   if [[ -f "$wav" ]]; then
+    # Veredito HONESTO: absmax/rms sozinho da falso positivo com frequencia
+    # (ruido de pacote, picos de transitorio). Mede o que o ouvido reclama:
+    # floor de ruido, buracos internos, e presenca de energia na banda de voz.
     python3 - "$wav" <<'PY'
 import math, struct, sys, wave
 p = sys.argv[1]
-with wave.open(p, "rb") as w:
-    d = w.readframes(w.getnframes())
-    v = struct.unpack("<" + "h" * (len(d) // 2), d) if d else ()
-    mx = max((abs(x) for x in v), default=0)
-    rms = math.sqrt(sum(x * x for x in v) / len(v)) if v else 0
-    nz = sum(x != 0 for x in v)
-print(f"  samples={len(v)} nonzero={nz} absmax={mx} rms={rms:.3f}")
-if mx > 200 and rms > 1.0:
-    print("  VEREDICTO_GRAVACAO=PASS")
-elif mx > 0:
-    print("  VEREDICTO_GRAVACAO=WEAK")
+w = wave.open(p, "rb")
+rate, ch, n = w.getframerate(), w.getnchannels(), w.getnframes()
+d = w.readframes(n)
+w.close()
+v = struct.unpack("<" + "h" * (len(d) // 2), d) if d else ()
+if ch > 1:
+    v = v[::ch]
+if not v:
+    print("  VEREDICTO_GRAVACAO=FAIL_SILENCIO (nenhum sample)")
+    raise SystemExit(0)
+mx = max(abs(x) for x in v)
+rms = math.sqrt(sum(x * x for x in v) / len(v))
+# janelas de 50ms
+win = max(1, int(rate * 0.05))
+fr = [v[i:i+win] for i in range(0, len(v), win)]
+fr = [f for f in fr if f]
+er = [math.sqrt(sum(x * x for x in f) / len(f)) for f in fr]
+er_s = sorted(er)
+p05 = er_s[max(0, int(len(er_s) * 0.05) - 1)]
+p95 = er_s[min(len(er_s) - 1, int(len(er_s) * 0.95))]
+thr = max(p05 * 4.0, 12.0)
+act = [e > thr for e in er]
+frac = sum(act) / len(act) if act else 0.0
+longest = cur = 0
+for a in act:
+    cur = 0 if a else cur + 1
+    longest = max(longest, cur)
+gap_s = longest * 0.05
+print(f"  samples={len(v)} absmax={mx} rms={rms:.1f}")
+print(f"  floor(p05)={p05:.1f} p95={p95:.1f} frames_com_sinal={100*frac:.1f}% maior_buraco={gap_s:.2f}s")
+if mx < 200:
+    v_ = "FAIL_SILENCIO"
+elif frac < 0.20:
+    v_ = "FAIL_ESCASO"          # quase nada: tipico do mSBC/alt-quebrado
+elif gap_s > 1.5:
+    v_ = "QUEBRADO"             # voz mas com buracos
+elif p95 < 300:
+    v_ = "FAIL_SO_RUIDO"
 else:
-    print("  VEREDICTO_GRAVACAO=FAIL_SILENCE")
+    v_ = "CANDIDATO_OK"
+print(f"  VEREDICTO_GRAVACAO={v_}")
+if v_ == "CANDIDATO_OK":
+    print("  ATENCAO: precisa confirmar por TRANSCRICAO (absmax ainda nao prova intelligible).")
+    print("  Use: scripts/qcy-mic-transcribe.sh <wav>")
 PY
+
     profile_after="$(pactl list cards 2>/dev/null | awk -v c="$card" '
       $0 ~ "Name: " c { on=1 }
       on && /Active Profile:/ { sub(/.*Active Profile: /, ""); print; exit }
@@ -212,10 +247,21 @@ pactl list sources short 2>/dev/null | awk '{print $2}' | grep -qx "$loopback" |
 }
 
 if [[ "$do_record" == 1 && -f "/tmp/qcy-diagnose-${ts}.wav" ]]; then
-  grep -q 'VEREDICTO_GRAVACAO=PASS' "$out" 2>/dev/null && pass "→ L6: áudio real capturado" || {
-    fail "→ L6: gravação muda/fraca — problema kernel SCO ou HFP não ativou"
-    ((issues++)) || true
-  }
+  v6="$(grep -oE 'VEREDICTO_GRAVACAO=[A-Z_]+' "$out" 2>/dev/null | tail -1 | cut -d= -f2)"
+  case "$v6" in
+    CANDIDATO_OK)
+      warn "→ L6: áudio presente, mas o veredito FINAL é por transcrição:"
+      info "     ./scripts/qcy-mic-transcribe.sh /tmp/qcy-diagnose-${ts}.wav"
+      ;;
+    "")
+      fail "→ L6: veredito não calculado"
+      ((issues++)) || true
+      ;;
+    *)
+      fail "→ L6: $v6 — ver docs/KERNEL-BTUSB-BARROT.md"
+      ((issues++)) || true
+      ;;
+  esac
 fi
 
 echo ""
