@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compila e instala btusb 0.8-barrot1 (eSCO-aware SCO count) para o dongle
+# Compila e instala btusb 0.8-barrot2 (eSCO-aware SCO count) para o dongle
 # UGREEN/Barrot 33fa:0012. Recriado em 25/09/2026 — o DKMS btusb-barrot que o
 # projeto usava em 2026-06 se perdeu na troca de distro/kernel (CachyOS -> Arch
 # + linux-zen). Ver docs/KERNEL-BTUSB-BARROT.md.
@@ -98,13 +98,27 @@ t = t.replace(anchor,
     f"{{\n\treturn {MARK} + {ESC};\n}}\n\n" + anchor, 1)
 if t.count(MARK) != 1 or t.count(ESC) != 1 or t.count(CALL) != 4:
     raise SystemExit("P1: helper inconsistente")
+# P2: Barrot 33fa:0010/0012 ignora Enhanced Setup SCO sem responder (medido
+# 25/09/2026 via btmon: 3 setups emitidos, 1 Synchronous Connect Complete,
+# resto sem resposta e sem erro -> mic em silencio). Mesmo padrao que fez o
+# upstream marcar QCA e MTK com BROKEN_ENHANCED_SETUP_SYNC_CONN ("doesn't
+# seem to work with HSP/HFP"). Volta para legacy Setup SCO (suficiente para
+# CVSD 8 kHz; mSBC ja esta desligado e exige eSCO mesmo).
+p2anchor = "\tif (id->driver_info & BTUSB_BCM2045)\n\t\thci_set_quirk(hdev, HCI_QUIRK_BROKEN_STORED_LINK_KEY);"
+if t.count(p2anchor) != 1:
+    raise SystemExit("P2: ancora BCM2045 nao encontrada")
+t = t.replace(p2anchor, p2anchor +
+    "\n\n\t/* Barrot 33fa:0010/0012: Enhanced Setup SCO sem resposta; HFP via legacy SCO */\n"
+    "\tif (id->driver_info & BTUSB_BARROT)\n"
+    "\t\thci_set_quirk(hdev, HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN);", 1)
 if t.count('#define VERSION "0.8"') != 1:
     raise SystemExit("VERSION nao encontrado")
-t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot1"', 1)
+t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot2"', 1)
 open(p, "w").write(t)
-print("patch P1 (eSCO-aware SCO count) aplicado + VERSION 0.8-barrot1")
+print("patch P1 (eSCO-aware SCO count) + P2 (Barrot legacy SCO) aplicados -> 0.8-barrot2")
 PY
   grep -q "$marker" "$work/btusb.c" || fail "patch nao aplicou"
+  grep -q "0.8-barrot2" "$work/btusb.c" || fail "VERSION barrot2 nao aplicada"
   ok "btusb.c patcheado"
 }
 
@@ -113,10 +127,10 @@ build() {
 obj-m += btusb.o
 
 all:
-	make -C $kbuild M=\$(PWD) modules
+	make -C $kbuild M=$work modules
 
 clean:
-	make -C $kbuild M=\$(PWD) clean
+	make -C $kbuild M=$work clean
 EOF
   log "compilando modulo externo (sem DKMS, sem fonte completa do kernel)"
   make -C "$work" clean >/dev/null 2>&1 || true
@@ -135,8 +149,8 @@ install_mod() {
   ok "gate OK: modinfo aponta pro override"
   sudo modprobe -r btusb 2>/dev/null || fail "nao consegui remover btusb (deve estar em uso) — sem override carregado, estado intacto"
   sudo modprobe btusb
-  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot1" ]] || fail "versao em uso != 0.8-barrot1 (rollback manual pode ser necessario)"
-  ok "modulo 0.8-barrot1 carregado"
+  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot2" ]] || fail "versao em uso != 0.8-barrot2 (rollback manual pode ser necessario)"
+  ok "modulo 0.8-barrot2 carregado"
 }
 
 install_conf() {
