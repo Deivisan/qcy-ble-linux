@@ -422,3 +422,54 @@ Patch: flag `BTUSB_BROKEN_SCO_ALT` (BIT 30) que faz o Barrot usar a tabela
 
 Resultado: 3/3 ciclos com áudio capturado, `corrupted SCO` = 0. Detalhes e
 receita em `docs/KERNEL-BTUSB-BARROT.md`.
+
+## 27. ERRO: `force_scofix=1` (segunda causa raiz do mic mudo)
+
+Ligado por engano em 25/09 achando que melhorava o SCO. Faz o oposto.
+
+`net/bluetooth/hci_event.c`, `hci_cc_read_buffer_size()`:
+```c
+hdev->sco_mtu  = rp->sco_mtu;       /* o que o controlador reportou */
+hdev->sco_pkts = rp->sco_max_pkt;
+if (hci_test_quirk(hdev, HCI_QUIRK_FIXUP_BUFFER_SIZE)) {
+        hdev->sco_mtu  = 64;        /* sobrescreve INCONDICIONALMENTE */
+        hdev->sco_pkts = 8;
+}
+```
+O header diz "corrige os buffers **se inválidos**", mas o código não checa
+nada. O Barrot reporta `sco_mtu = 255` correto; a quirk fazia o kernel
+mentir e dizer 64.
+
+Prova (log do driver, P4):
+```
+force_scofix=1 -> sco_mtu=64   -> corrupted SCO em rajada, mic mudo
+force_scofix=0 -> sco_mtu=255  -> transporte íntegro, áudio entra
+```
+
+`force_scofix=1` existe para dongles que reportam `sco_max_pkt = 0` (sem a
+quirk o kernel recusa a conexão SCO com `-ECONNREFUSED`). O Barrot não é um
+deles. **Não religue.**
+
+## 28. ERRO: `dmesg` retorna vazio — todos os "corrupted SCO = 0" eram falsos
+
+Contava `dmesg | grep -c "corrupted SCO"` e reportava **0** como se estivesse
+tudo bem. Neste sistema `dmesg` não retorna nada (buffer restrito), então o
+grep contava **zero linhas**, não zero erros. O valor real era **1755**.
+
+Use sempre `journalctl -k -b`. Isso invalidou várias medições da sessão
+(inclusive o "0" que usei para dizer que o altsetting 2 tinha resolvido).
+
+**Lição:** quando um verificador dá 0, confirme que ele está medindo alguma
+coisa. Compare com uma contagem claramente não-zero antes de acreditar.
+
+## 29. Terceira causa: transporte wedged no PipeWire (pipewire#5467)
+
+Depois de uma sequência de erros, o PipeWire trava e recusa TODA nova captura
+até ser reiniciado — mesmo sintoma, camada diferente.
+
+`spa_bt_transport_set_state(..., ERROR)` incrementa `error_count` e
+`spa_bt_transport_acquire()` devolve `-EIO` no terceiro erro, sem zerar o
+contador na troca de perfil.
+
+Diagnóstico: `systemctl --user restart pipewire pipewire-pulse wireplumber`
+(medido: energia saltou de 0.005 para 1.944 na sessão seguinte).

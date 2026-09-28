@@ -34,7 +34,13 @@ altsettings do próprio upstream → **alt 2 (17 bytes)**.
 cat /sys/module/btusb/version                      # tem que dizer 0.8-barrot4
 ```
 
-**Como saber se o patch está ativo** (não confie só no version):
+**Segunda causa raiz,também nossa:** `force_scofix=1` fazia o kernel
+sobrescrever `sco_mtu` de 255 → 64 (o código sobrescreve
+incondicionalmente, apesar do comentário dizer "se inválido"). **Não
+religue.** O Barrot reporta 255 corretamente. Prova: o log do driver
+mostra `sco_mtu=64` (quebrado) vs `sco_mtu=255` (funcional).
+
+**Como saber se está tudo certo** (não confie só no version):
 ```bash
 timeout 10 pw-record --target bluez_input.84_AC_60_05_55:2C /tmp/t.wav &
 sleep 3; cat /sys/bus/usb/devices/1-5:1.1/bAlternateSetting   # tem que ser 2
@@ -58,6 +64,8 @@ Detalhes completos, erros do caminho errado e receita para outras máquinas:
   prendeu o perfil em HFP por dias (item 23). A troca A2DP↔HFP é nativa do
   WirePlumber (`bluetooth.autoswitch-to-headset-profile = true`) e funciona.
   Se precisar reverter algum dia: `bluetoothctl disconnect; connect`.
+- **`dmesg` retorna VAZIO neste sistema.** Use `journalctl -k -b`.
+  `dmesg | grep -c "corrupted SCO"` dá 0 falso — foi o que me enganou.
 - **Nunca confiar em `grep -c` de log do btmon** para contar eventos de
   protocolo — o btmon trunca linhas conforme a largura do terminal e já
   fabricou um "45% de falha" que não existia (item 20).

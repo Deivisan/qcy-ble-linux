@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compila e instala btusb 0.8-barrot4 (Barrot legacy SCO) para o dongle
+# Compila e instala btusb 0.8-barrot5 (Barrot legacy SCO) para o dongle
 # UGREEN/Barrot 33fa:0012. Recriado em 25/09/2026 — o DKMS btusb-barrot que o
 # projeto usava em 2026-06 se perdeu na troca de distro/kernel (CachyOS -> Arch
 # + linux-zen). Ver docs/KERNEL-BTUSB-BARROT.md.
@@ -192,15 +192,34 @@ t = t.replace(p2anchor, p2anchor +
     "\t */\n"
     "\tif (id->driver_info & BTUSB_BARROT)\n"
     "\t\thci_set_quirk(hdev, HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN);", 1)
+if t.count("""\t\tif (btusb_switch_alt_setting(hdev, new_alts) < 0)
+\t\t\tbt_dev_err(hdev, "set USB alt:(%d) failed!", new_alts);""") != 1:
+    raise SystemExit("P4: ancora do switch_alt_setting nao encontrada")
+
+# P4: observabilidade. btusb_work() NAO loga o altsetting escolhido no caminho
+# de sucesso (so no de falha), entao nao dava para saber por que o endpoint
+# isocronico ficava em 1. Este log fecha a lacuna e responde de uma vez.
+t = t.replace("""\t\tif (btusb_switch_alt_setting(hdev, new_alts) < 0)
+\t\t\tbt_dev_err(hdev, "set USB alt:(%d) failed!", new_alts);""",
+"""\t\tbt_dev_info(hdev, "SCO altsetting: %d (air_mode=%u sco_num=%u "
+\t\t\t     "voice_setting=0x%04x flag=%u sco_mtu=%u)",
+\t\t\t     new_alts, data->air_mode, data->sco_num,
+\t\t\t     hdev->voice_setting,
+\t\t\t     test_bit(BTUSB_BROKEN_SCO_ALT, &data->flags),
+\t\t\t     hdev->sco_mtu);
+\t\tif (btusb_switch_alt_setting(hdev, new_alts) < 0)
+\t\t\tbt_dev_err(hdev, "set USB alt:(%d) failed!", new_alts);""", 1)
+
 if t.count('#define VERSION "0.8"') != 1:
     raise SystemExit("VERSION nao encontrado")
-t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot4"', 1)
+t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot5"', 1)
 open(p, "w").write(t)
-print("patches P2 (legacy SCO 0x0028) + P3 (CVSD alt>=2) aplicados -> 0.8-barrot4 | P1 removido")
+print("patches P2 (legacy SCO 0x0028) + P3 (CVSD alt>=2) aplicados -> 0.8-barrot5 | P1 removido")
 PY
-  grep -q "0.8-barrot4" "$work/btusb.c" || fail "VERSION barrot4 nao aplicada"
+  grep -q "0.8-barrot5" "$work/btusb.c" || fail "VERSION barrot4 nao aplicada"
   grep -q "btusb_sco_conn_count" "$work/btusb.c" && fail "P1 nao deveria existir"
   grep -q "BTUSB_BROKEN_SCO_ALT" "$work/btusb.c" || fail "P3 nao aplicou"
+  grep -q "SCO altsetting:" "$work/btusb.c" || fail "P4 nao aplicou"
   ok "btusb.c patcheado (P2 + P3)"
 }
 
@@ -232,8 +251,8 @@ install_mod() {
   ok "gate OK: modinfo aponta pro override"
   sudo modprobe -r btusb 2>/dev/null || fail "nao consegui remover btusb (deve estar em uso) — sem override carregado, estado intacto"
   sudo modprobe btusb
-  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot4" ]] || fail "versao em uso != 0.8-barrot4 (rollback manual pode ser necessario)"
-  ok "modulo 0.8-barrot4 carregado"
+  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot5" ]] || fail "versao em uso != 0.8-barrot5 (rollback manual pode ser necessario)"
+  ok "modulo 0.8-barrot5 carregado"
 }
 
 install_conf() {

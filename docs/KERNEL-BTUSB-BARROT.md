@@ -1,7 +1,11 @@
 # Microfone do QCY H3S no Linux — a cura do altsetting isocrônico (Barrot/UGREEN)
 
-**Criado:** 25/09/2026 · **Corrigido por completo:** 28/09/2026
-**Estado:** ✅ validado — 3/3 ciclos com áudio real capturado, `corrupted SCO` = 0
+**Criado:** 25/09/2026 · **Corrigido:** 28/09/2026 (2 rodadas)
+**Estado:** ✅ validado — 4/4 sessões com áudio real capturado
+
+> ⚠️ **28/09, segunda rodada:** a primeira versão do patch deixou `force_scofix=1`,
+> que **também** quebrava o SCO. Desligado (`force_scofix=0`) o mic passou a
+> funcionar de forma estável. Não religue. Ver seção 4.3.
 
 > Este documento foi **reescrito do zero** em 28/09/2026. A versão anterior
 > afirmava que `hci_conn_num(hdev, SCO_LINK)` devolveria `0` para conexões eSCO.
@@ -14,12 +18,15 @@
 
 | | |
 |---|---|
-| **Sintoma** | Microfone do fone funciona e depois emudece. Pelo sistema aparece "saudável": perfil HFP ativo, `Synchronous Connect Complete: Status: Success`, ~600 pacotes SCO/s, **zero erro de kernel**. O áudio que chega é silêncio ou um zumbido de ~100 Hz. |
-| **Causa raiz** | `drivers/bluetooth/btusb.c`, função `btusb_work()`. O dongle **não anuncia 2EV3** (`hdev->voice_setting & 0x0020 == 0`), então o kernel escolhe **altsetting USB 1 = 9 bytes**. Um pacote SCO CVSD tem **60 bytes**. A remontagem isócrona não fecha nesse endpoint → `corrupted SCO packet` em rajada e áudio vazio. |
-| **Correção** | Patch **P3**: forçar o Barrot a usar a **mesma tabela de altsettings e o mesmo índice que o próprio upstream usa no caminho 2EV3** (`alts[3] = {2,4,5}`), via flag de runtime. 1 conexão → **alt 2 (17 bytes)**, que é o valor correto e o que o upstream escolheria. |
-| **Também** | Patch **P2**: `HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN` no Barrot → usa o comando SCO clássico `0x0028` em vez de `0x043d`. É **o que o driver do Windows faz**. |
-| **Removido** | Patch **P1** (eSCO-aware SCO count) — premissa falsa, causava dano. Ver seção 6.2. |
-| **Resultado** | `btusb 0.8-barrot4`, altsetting 2 durante SCO, `corrupted SCO` = 0,Profiles trocam A2DP↔HFP normalmente. |
+| **Sintoma** | Microfone do fone funciona e depois emudece. Pelo sistema aparece "saudável": perfil HFP ativo, `Synchronous Connect Complete: Status: Success`, ~600 pacotes SCO/s, **quase nenhum erro de kernel**. O áudio que chega é silêncio ou um zumbido de ~100 Hz. |
+| **Causa raiz 1** | `drivers/bluetooth/btusb.c`, função `btusb_work()`. O dongle **não anuncia 2EV3** (`hdev->voice_setting & 0x0020 == 0`), então o kernel escolhe **altsetting USB 1 = 9 bytes**. O tráfego real são 4 pacotes de `dlen 24` a cada 10 ms (8 kHz CVSD = 80 bytes/10 ms) — precisaria de 12 microframes de 1 ms em 10, **fisicamente impossível**. Áudio chega vazio. |
+| **Causa raiz 2** | `force_scofix=1` (nosso) mentia sobre os buffers do controlador: `hci_cc_read_buffer_size()` sobrescreve `sco_mtu` de **255 → 64** e `sco_pkts` **incondicionalmente**, sem checar se o valor é inválido. |
+| **Correção 1 (P3)** | Forçar o Barrot a usar a **mesma tabela de altsettings e o mesmo índice que o upstream usa no caminho 2EV3** (`alts[3] = {2,4,5}`) → **alt 2 (17 bytes)**, o valor correto e testado pelo commit do próprio dongle. |
+| **Correção 2** | **`force_scofix=0`**. O Barrot reporta `sco_mtu = 255` corretamente; não precisa de correção. |
+| **Também (P2)** | `HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN` → comando SCO clássico `0x0028` em vez de `0x043d`. É **o que o driver do Windows faz**. |
+| **Removido (P1)** | Patch "eSCO-aware SCO count" — premissa falsa, causava dano. Ver seção 6.2. |
+| **Resultado** | `btusb 0.8-barrot5`, `sco_mtu=255`, alt 2 durante SCO, 4/4 sessões com áudio real capturado, troca A2DP↔HFP automática. |
+
 
 ```bash
 ./scripts/apply-btusb-esco-count-fix.sh            # instala btusb 0.8-barrot4
@@ -196,24 +203,74 @@ dmesg | grep "Enhanced Setup Synchronous"
 #            advertised, but not supported.
 ```
 
-### 4.3 Parâmetros de módulo que permanecem
+### 4.3 Parâmetros de módulo
 
 `/etc/modprobe.d/btusb-barrot-qcy.conf`:
 
 ```
-options btusb force_scofix=1
+options btusb force_scofix=0
 options btusb enable_autosuspend=0
 ```
 
-- `force_scofix=1` → `HCI_QUIRK_FIXUP_BUFFER_SIZE`, que força
-  `sco_mtu = 64` / `sco_pkts = 8` (`net/bluetooth/hci_event.c`,
-  `hci_cc_read_buffer_size`). **64 bytes é exatamente o tamanho do pacote SCO
-  CVSD** — correto para nós. Também ativa o filtro de pacotes SCO duplicados
-  ("Workaround for spotty SCO quality"), útil nesta família de dongles.
-  Não afeta o A2DP (que é ACL).
-- `enable_autosuspend=0` — evita suspensão do dongle com link ativo.
+**`force_scofix=0`** — isto mudou. Até 28/09 à noite estava em `1`, e era a
+**segunda causa raiz**. Em `net/bluetooth/hci_event.c`:
 
----
+```c
+hdev->sco_mtu  = rp->sco_mtu;        /* o que o controlador reportou */
+hdev->sco_pkts = rp->sco_max_pkt;
+
+if (hci_test_quirk(hdev, HCI_QUIRK_FIXUP_BUFFER_SIZE)) {
+        hdev->sco_mtu  = 64;         /* sobrescreve INCONDICIONALMENTE */
+        hdev->sco_pkts = 8;
+}
+```
+
+O comentário do header diz *"os buffers são corrigidos **se inválidos**"*, mas o
+código **não checa**: sobrescreve sempre. Este dongle reporta `sco_mtu = 255`
+corretamente, e a quirk fazia o kernel mentir e dizer 64.
+
+Prova direta, do log que o próprio patch agora emite:
+
+```
+forca_scofix=1 -> SCO altsetting: 2 (air_mode=4 sco_num=1 voice_setting=0x0000 flag=1 sco_mtu=64)
+forca_scofix=0 -> SCO altsetting: 2 (air_mode=4 sco_num=1 voice_setting=0x0000 flag=1 sco_mtu=255)
+```
+
+`force_scofix=0` → transporte íntegro, áudio entra.
+
+> **Não religue.** `force_scofix=1` existe para dongles que reportam
+> `sco_max_pkt = 0` — sem a quirk o kernel recusa a conexão SCO inteira com
+> `-ECONNREFUSED` em `__hci_conn_add()`. O Barrot **não** é um deles: ele
+> reporta 255, que é o que a gente quer.
+
+**`enable_autosuspend=0`** — evita suspender o dongle com link de áudio ativo.
+
+### 4.4 P4 — log de observabilidade (por que o bug era invisível)
+
+`btusb_work()` **não logava** o altsetting escolhido no caminho de sucesso
+(só no de falha). Era impossível saber que o endpoint ficava em 1. O patch
+agora emite, antes do switch:
+
+```c
+bt_dev_info(hdev, "SCO altsetting: %d (air_mode=%u sco_num=%u "
+        "voice_setting=0x%04x flag=%u sco_mtu=%u)", ...);
+```
+
+Para ler:
+
+```bash
+journalctl -k -b | grep "SCO altsetting"
+# Bluetooth: hci0: SCO altsetting: 2 (air_mode=4 sco_num=1
+#            voice_setting=0x0000 flag=1 sco_mtu=255)
+```
+
+Decodificando: `air_mode=4` = `HCI_NOTIFY_ENABLE_SCO_CVSD`; `flag=1` = P3
+ativo; `sco_mtu=255` = valor real do controlador. **`SCO altsetting: 1` = P3
+não está ativa.**
+
+> **Atenção ao ler log do kernel neste sistema:** `dmesg` retorna **vazio**
+> (buffer restrito). Use sempre `journalctl -k`. Contar erro com `dmesg | grep -c`
+> dá **0 falso** e foi exatamente o que me enganou durante a investigação.
 
 ## 5. Por que mSBC fica desligado (e por que não é culpa do dongle)
 
@@ -395,17 +452,37 @@ segundos:
 | A) silêncio (baseline) | 0.058 | 627 |
 | B) com tom | **1.95 (×33.8)** | 2773 |
 
-### 7.3 Persistência — 3 ciclos A2DP↔HFP seguidos
+### 7.3 Persistência — 4 sessões seguidas (28/09, rodada 2)
 
-O sintoma original era "funciona só na primeira vez". Testado 3 vezes:
+O sintoma original era "funciona só na primeira vez". Testado 4 vezes, com
+troca automática de perfil A2DP↔HFP em cada uma:
 
-| ciclo | altsetting | rms | pico | 1500 Hz | ganho | veredito |
-|-------|-----------|-----|------|---------|-------|----------|
-| 1 | 2 | 1103 | 14121 | 1.03 | ×17.9 | **CAPTOU** |
-| 2 | 2 | 1617 | 17675 | 0.93 | ×16.2 | **CAPTOU** |
-| 3 | 2 | 1092 | 16411 | 0.32 | ×5.6 | **CAPTOU** |
+| sessão | energia 1500 Hz | pico | veredito |
+|--------|----------------|------|----------|
+| 1 | 3.122 | 9143 | **CAPTOU** |
+| 2 | 1.679 | 24259 | **CAPTOU** |
+| 3 | 2.732 | 15943 | **CAPTOU** |
+| 4 | 4.076 | 14498 | **CAPTOU** |
 
-`corrupted SCO packet` no kernel: **0** (antes: centenas por sessão).
+**Sobre o dado no ar (medido com btmon):** o controlador envia 4 pacotes
+`dlen 24` a cada 10 ms = 80 bytes/10 ms = **8000 bytes/s = 8 kHz CVSD exato**.
+Com altsetting 1 (9 bytes) seriam necessários 12 microframes de 1 ms em cada
+janela de 10 ms — **fisicamente impossível**, e é por isso que o áudio não
+remontava. Com altsetting 2 (17 bytes) são 8 microframes: cabe.
+
+### 7.4 Um terceiro fator: transporte wedged no PipeWire
+
+Depois de uma sequência de erros de transporte, o PipeWire **trava** e passa a
+recusar toda nova captura até ser reiniciado. Sintoma idêntico ao do
+altsetting (mic mudo com o HCI reportando o link perfeito), mas em camada
+diferente — o bug [`pipewire#5467`](https://gitlab.freedesktop.org/pipewire/pipewire/-/work_items/5467):
+`spa_bt_transport_set_state(..., ERROR)` incrementa `error_count` e
+`spa_bt_transport_acquire()` devolve `-EIO` no terceiro erro, **sem nunca
+zerar o contador** na troca de perfil.
+
+Diagnóstico: `systemctl --user restart pipewire pipewire-pulse wireplumber`
+restaura a captura imediatamente (verificado: energia saltou de 0.005 para
+1.944 na sessão seguinte).
 
 ### 7.4 Validação com voz real
 
