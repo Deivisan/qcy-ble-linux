@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compila e instala btusb 0.8-barrot2 (eSCO-aware SCO count) para o dongle
+# Compila e instala btusb 0.8-barrot4 (Barrot legacy SCO) para o dongle
 # UGREEN/Barrot 33fa:0012. Recriado em 25/09/2026 — o DKMS btusb-barrot que o
 # projeto usava em 2026-06 se perdeu na troca de distro/kernel (CachyOS -> Arch
 # + linux-zen). Ver docs/KERNEL-BTUSB-BARROT.md.
@@ -23,7 +23,7 @@ modprobe_conf="/etc/modprobe.d/btusb-barrot-qcy.conf"
 stock="/lib/modules/${kern}/kernel/drivers/bluetooth/btusb.ko.zst"
 kbuild="/lib/modules/${kern}/build"
 stable="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git/plain/drivers/bluetooth"
-marker="btusb_sco_conn_count"
+marker="HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN"
 files=(btusb.c btintel.h btbcm.h btrtl.h btmtk.h)
 
 log()  { printf '\033[1;36m%s\033[0m\n' "$*"; }
@@ -80,47 +80,130 @@ patch() {
 import sys
 p = sys.argv[1]
 t = open(p).read()
-MARK, ESC, CALL = ("hci_conn_num(hdev, SCO_LINK)",
-                   "hci_conn_num(hdev, ESCO_LINK)",
-                   "btusb_sco_conn_count(hdev)")
-n = t.count(MARK)
-if n != 4:
-    raise SystemExit(f"ancora P1: esperava 4 ocorrencias de SCO_LINK, achei {n} "
-                     f"(versao do kernel diferente de {sys.argv[2] if len(sys.argv)>2 else '?'}?)")
-t = t.replace(MARK, CALL)          # antes de criar o helper, senao auto-referencia
-if t.count(MARK):
-    raise SystemExit("P1: sobrou SCO_LINK original")
-anchor = "static bool btusb_validate_sco_handle(struct hci_dev *hdev,"
-if t.count(anchor) != 1:
-    raise SystemExit("P1: ancora validate_sco_handle nao encontrada")
-t = t.replace(anchor,
-    f"static inline unsigned int btusb_sco_conn_count(struct hci_dev *hdev)\n"
-    f"{{\n\treturn {MARK} + {ESC};\n}}\n\n" + anchor, 1)
-if t.count(MARK) != 1 or t.count(ESC) != 1 or t.count(CALL) != 4:
-    raise SystemExit("P1: helper inconsistente")
-# P2: Barrot 33fa:0010/0012 ignora Enhanced Setup SCO sem responder (medido
-# 25/09/2026 via btmon: 3 setups emitidos, 1 Synchronous Connect Complete,
-# resto sem resposta e sem erro -> mic em silencio). Mesmo padrao que fez o
-# upstream marcar QCA e MTK com BROKEN_ENHANCED_SETUP_SYNC_CONN ("doesn't
-# seem to work with HSP/HFP"). Volta para legacy Setup SCO (suficiente para
-# CVSD 8 kHz; mSBC ja esta desligado e exige eSCO mesmo).
+
+# ---------------------------------------------------------------------------
+# P1 — REMOVIDO em 28/09/2026. A premissa era FALSA e o patch era NOCIVO.
+#
+# include/net/bluetooth/hci_core.h (kernel instalado, 7.2.7-zen1-1):
+#     static inline unsigned int hci_conn_num(struct hci_dev *hdev, __u8 type) {
+#         switch (type) {
+#         case SCO_LINK:
+#         case ESCO_LINK:            <-- fallthrough
+#             return h->sco_num;     <-- o MESMO contador
+#     ...
+#
+# Entao hci_conn_num(SCO_LINK) == hci_conn_num(ESCO_LINK) SEMPRE. Somar os dois
+# devolvia 2*sco_num. E data->sco_num e USADO COMO INDICE DE ARRAY em
+# btusb_work():
+#     static const int alts[3] = { 2, 4, 5 };
+#     sco_idx = min_t(unsigned int, data->sco_num - 1, ARRAY_SIZE(alts) - 1);
+#     new_alts = alts[sco_idx];
+#
+# Com 1 conexao SCO real: correto -> alts[0] = 2 (17 bytes).
+# Com P1 (dobrava):               -> alts[1] = 4 (33 bytes)  <-- ERRADO
+# Com 2+ conexoes:                -> indice fora de alts[3]   <-- OOB
+#
+# O endpoint isocronico ficava com wMaxPacketSize errado para o trafego SCO
+# (60 bytes por pacote CVSD) -> remontagem quebrada -> link看起来 saudavel
+# (HCI sempre_OK, ~600 pkt/s, zero erro de kernel) mas audio SILENCIOSO.
+#
+# ALTERADO: o que o modulo PATCHEADO entregava era um alt setting que o
+# upstream nunca escolhe para 1 conexao, num dongle cujo altsetting correto
+# foi validado pelo proprio commit do Barrot (7722d6fb54e4, v6.18+).
+# ---------------------------------------------------------------------------
+if "btusb_sco_conn_count" in t:
+    raise SystemExit("P1 ainda presente na fonte — workdir velho? apague $work")
+
+# ---------------------------------------------------------------------------
+# P3 — Barrot 33fa:0010/0012: CVSD precisa de alt >= 2 no endpoint isocronico.
+#
+# O bug real, medido em 28/09/2026 neste hardware:
+#
+#   btusb_work(), ramo CVSD:
+#       if (hdev->voice_setting & 0x0020) {   // bit 0x0020 = 2EV3
+#               static const int alts[3] = { 2, 4, 5 };   // -> alt 2 p/ 1 conexao
+#               new_alts = alts[sco_idx];
+#       } else {
+#               new_alts = data->sco_num;     // -> alt 1 (9 bytes)
+#       }
+#
+# O Barrot NAO anuncia 2EV3 (voice_setting & 0x0020 == 0), entao cai no else e
+# fica em alt 1 = wMaxPacketSize 9 bytes. Um pacote SCO CVSD tem 60 bytes
+# (8 kHz, 7,5 ms) e precisa ser remontado de ~7 microframes de 9 bytes; a
+# remontagem isocronica do btusb nao aguenta esse recorte nesse endpoint ->
+# "~400 corrupted SCO packet/s" e audio 100% mudo, com o HCI reportando o
+# link como saudavel (Synchronous Connect Complete: Success, ~600 pkt/s).
+#
+# Correcao: para BTUSB_BARROT usar a MESMA tabela que o upstream usa quando o
+# chip suporta 2EV3 (alt 2 = 17 bytes para 1 conexao, 4 e 5 para 2 e 3). Isso
+# nao inventa numero nenhum — reaproveita a tabela e o indice validados do
+# proprio upstream, com data->sco_num intacto.
+# ---------------------------------------------------------------------------
+# P3: novo flag de runtime (o padrao do proprio driver, como
+# BTUSB_USE_ALT3_FOR_WBS / BTUSB_BROKEN_ISOC). BIT(30) esta livre.
+p3flag = "#define BTUSB_BROKEN_SCO_ALT\t\tBIT(30)\n"
+flag_anchor = "#define BTUSB_BROKEN_EXT_SCAN\t\tBIT(29)"
+if t.count(flag_anchor) != 1:
+    raise SystemExit("P3: ancora de defines nao encontrada")
+t = t.replace(flag_anchor, flag_anchor + "\n" + p3flag, 1)
+
+p3old = """\t\tif (data->air_mode == HCI_NOTIFY_ENABLE_SCO_CVSD) {
+\t\t\tif (hdev->voice_setting & 0x0020) {"""
+p3new = """\t\tif (data->air_mode == HCI_NOTIFY_ENABLE_SCO_CVSD) {
+\t\t\tif (hdev->voice_setting & 0x0020 ||
+\t\t\t    test_bit(BTUSB_BROKEN_SCO_ALT, &data->flags)) {"""
+if t.count(p3old) != 1:
+    raise SystemExit("P3: ancora do ramo CVSD nao encontrada")
+t = t.replace(p3old, p3new, 1)
+
+# liga a flag no probe, junto dos outros flags de quirk
+p3probe_old = """\tif (id->driver_info & BTUSB_BROKEN_ISOC)
+\t\tdata->isoc = NULL;"""
+if t.count(p3probe_old) != 1:
+    raise SystemExit("P3: ancora do probe nao encontrada")
+t = t.replace(p3probe_old,
+    "\t/* Barrot 33fa:0010/0012 nao anuncia 2EV3 (voice_setting 0x0020 = 0), mas\n"
+    "\t * precisa de alt >= 2 para o endpoint isocronico remontar os pacotes\n"
+    "\t * SCO CVSD de 60 bytes. Sem isso fica em alt 1 (9 bytes) e o audio vira\n"
+    "\t * ~400 'corrupted SCO packet'/s com o HCI reportando o link como OK.\n"
+    "\t * Reaproveita a tabela e o indice que o upstream usa no caminho 2EV3.\n"
+    "\t */\n"
+    "\tif (id->driver_info & BTUSB_BARROT)\n"
+    "\t\tset_bit(BTUSB_BROKEN_SCO_ALT, &data->flags);\n\n" + p3probe_old, 1)
+
+
+# ---------------------------------------------------------------------------
+# P2 — Barrot 33fa:0010/0012: Enhanced Setup SCO (0x043d) nao funciona ->
+# usa o comando classico (0x0028). Mesmo padrao que o upstream aplica em QCA
+# e MediaTek. Precedente identico e recente: patch btmtk de mai/2026 para o
+# MT6639 descreve EXATAMENTE isto — o firmware anuncia 0x043d, rejeita em
+# runtime, o mic fica em silencio, e "the Windows driver works around the
+# same firmware bug by issuing the classic Setup Synchronous Connection
+# command (0x0428)". Como o mesmo par dongle+fone funciona perfeito no
+# Windows, este e o caminho que o proprio Windows usa.
+# ---------------------------------------------------------------------------
 p2anchor = "\tif (id->driver_info & BTUSB_BCM2045)\n\t\thci_set_quirk(hdev, HCI_QUIRK_BROKEN_STORED_LINK_KEY);"
 if t.count(p2anchor) != 1:
     raise SystemExit("P2: ancora BCM2045 nao encontrada")
 t = t.replace(p2anchor, p2anchor +
-    "\n\n\t/* Barrot 33fa:0010/0012: Enhanced Setup SCO sem resposta; HFP via legacy SCO */\n"
+    "\n\n\t/* Barrot 33fa:0010/0012: firmware anuncia Enhanced Setup SCO (0x043d)\n"
+    "\t * mas rejeita em runtime -> cai para o comando classico (0x0028), como\n"
+    "\t * o driver do Windows. Precedente: btmtk MT6639 (mai/2026).\n"
+    "\t */\n"
     "\tif (id->driver_info & BTUSB_BARROT)\n"
     "\t\thci_set_quirk(hdev, HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN);", 1)
 if t.count('#define VERSION "0.8"') != 1:
     raise SystemExit("VERSION nao encontrado")
-t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot2"', 1)
+t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot4"', 1)
 open(p, "w").write(t)
-print("patch P1 (eSCO-aware SCO count) + P2 (Barrot legacy SCO) aplicados -> 0.8-barrot2")
+print("patches P2 (legacy SCO 0x0028) + P3 (CVSD alt>=2) aplicados -> 0.8-barrot4 | P1 removido")
 PY
-  grep -q "$marker" "$work/btusb.c" || fail "patch nao aplicou"
-  grep -q "0.8-barrot2" "$work/btusb.c" || fail "VERSION barrot2 nao aplicada"
-  ok "btusb.c patcheado"
+  grep -q "0.8-barrot4" "$work/btusb.c" || fail "VERSION barrot4 nao aplicada"
+  grep -q "btusb_sco_conn_count" "$work/btusb.c" && fail "P1 nao deveria existir"
+  grep -q "BTUSB_BROKEN_SCO_ALT" "$work/btusb.c" || fail "P3 nao aplicou"
+  ok "btusb.c patcheado (P2 + P3)"
 }
+
 
 build() {
   cat > "$work/Makefile" <<EOF
@@ -149,8 +232,8 @@ install_mod() {
   ok "gate OK: modinfo aponta pro override"
   sudo modprobe -r btusb 2>/dev/null || fail "nao consegui remover btusb (deve estar em uso) — sem override carregado, estado intacto"
   sudo modprobe btusb
-  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot2" ]] || fail "versao em uso != 0.8-barrot2 (rollback manual pode ser necessario)"
-  ok "modulo 0.8-barrot2 carregado"
+  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot4" ]] || fail "versao em uso != 0.8-barrot4 (rollback manual pode ser necessario)"
+  ok "modulo 0.8-barrot4 carregado"
 }
 
 install_conf() {
