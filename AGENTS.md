@@ -16,27 +16,57 @@ Projeto de engenharia reversa para controle QCY H3S no Linux via SPP/RFCOMM + GA
 - **Runtimes:** Bun 1.3.x, Node 26, Python 3.14, Rust
 
 ### Kernel btusb é item obrigatório, não opcional
-O mic **depende** de um `btusb` patcheado (`0.8-barrot1`) em
+O mic **depende** de um `btusb` patcheado (`0.8-barrot4`) em
 `/lib/modules/<kernel>/updates/dkms/btusb.ko`. Ele é perdido a cada troca de
 kernel/distro e foi justamente o que ficou ausente por 3 meses (ver
 `TENTATIVAS-SEM-SUCESSO.md` item 17).
 
+**Causa raiz (corrigida 28/09/2026):** o Barrot `33fa:0012` não anuncia 2EV3,
+então `btusb_work()` escolhia **altsetting USB 1 (9 bytes)** para pacotes SCO
+CVSD de **60 bytes** → remontagem isócrona quebrada → `corrupted SCO` e áudio
+mudo **com o HCI reportando o link como perfeito** (`Status: Success`, ~600
+pkt/s, zero erro de kernel). O patch força o Barrot a usar a tabela de
+altsettings do próprio upstream → **alt 2 (17 bytes)**.
+
 ```bash
 ./scripts/apply-btusb-esco-count-fix.sh            # (re)instala
 ./scripts/apply-btusb-esco-count-fix.sh --check    # confere
-cat /sys/module/btusb/version                      # tem que dizer 0.8-barrot1
+cat /sys/module/btusb/version                      # tem que dizer 0.8-barrot4
 ```
 
-Detalhes e a investigação completa: **`docs/KERNEL-BTUSB-BARROT.md`**.
+**Como saber se o patch está ativo** (não confie só no version):
+```bash
+timeout 10 pw-record --target bluez_input.84_AC_60_05_55:2C /tmp/t.wav &
+sleep 3; cat /sys/bus/usb/devices/1-5:1.1/bAlternateSetting   # tem que ser 2
+```
+`alt = 1` com HFP ativo = **mic vai ficar mudo**.
+
+Detalhes completos, erros do caminho errado e receita para outras máquinas:
+**`docs/KERNEL-BTUSB-BARROT.md`**.
 
 ### Regras de Contributors
-- **NUNCA** religar `bluez5.enable-msbc` — medido como inutil neste dongle
-  (negocia certo no ar, áudio 100% mudo, ~400 corrupted SCO/s). E faz o BlueZ
-  escolher sozinho o perfil quebrado. Ver item 15.
+- **NUNCA** religar `bluez5.enable-msbc` — não é limitação do dongle, é
+  topologia: o `33fa:0012` não tem alt 6 (teto alt 5 = 49 bytes) e
+  `BTUSB_USE_ALT3_FOR_WBS` só existe para chips Realtek, então mSBC cairia
+  deterministicamente em alt 1. Codec negocia, áudio chega mudo. Ver
+  `docs/KERNEL-BTUSB-BARROT.md` seção 5.
 - **Validar áudio por TRANSCRIÇÃO**, nunca por `absmax`/`rms`. Já gerou PASS
-  falso. Use `./scripts/qcy-mic-transcribe.sh`. Ver item 19.
+  falso (item 19) **e** FALSO falso (item 22 — medir microfone sem ninguém
+  falar). Use `./scripts/qcy-mic-transcribe.sh`, ou o teste acústico
+  diferencial da doc (tom no alto-falante do notebook medido no mic do fone).
+- **NUNCA** deixar daemon/timer próprio segurando captura de microfone. Já
+  prendeu o perfil em HFP por dias (item 23). A troca A2DP↔HFP é nativa do
+  WirePlumber (`bluetooth.autoswitch-to-headset-profile = true`) e funciona.
+  Se precisar reverter algum dia: `bluetoothctl disconnect; connect`.
+- **Nunca confiar em `grep -c` de log do btmon** para contar eventos de
+  protocolo — o btmon trunca linhas conforme a largura do terminal e já
+  fabricou um "45% de falha" que não existia (item 20).
+- **Antes de patchar o kernel, ler o código instalado** em
+  `/lib/modules/$(uname -r)/build/`. Um patch anterior partiu de uma premissa
+  falsa sobre `hci_conn_num()` e causou dano real (item 21).
 - Advice de KDE neste repo está obsoleto — o DE é **COSMIC**. Os erros do
   `cosmic-settings-daemon` no journal são de textura/tema, não de áudio.
+
 
 
 ## Histórico de Commits (últimos 15)

@@ -320,3 +320,105 @@ Corrigido nesta sessão:
 
 **Lição:** validação de áudio de Bluetooth tem de ser por texto, não por
 número. Barulho tem absmax alto.
+
+---
+
+# 28/09/2026 — Sessão de correção do microfone (a que resolveu)
+
+Contexto: "microfone funciona na primeira vez e depois morre". Esta seção
+registra **todos os caminhos errados** tomados nesta sessão, para não repetir.
+
+## 20. ERRO: "o dongle ignora 45% dos comandos SCO" (dado inventado por grep)
+
+Afirmei que o firmware do Barrot recusava ~45% das aberturas de canal de voz.
+Base: `grep -c 'Synchronous Connect Complete'` numa captura do btmon.
+
+**O grep é que estava errado.** O btmon trunca linhas com a largura do terminal:
+
+```
+> HCI Event: Synchronous Connect Complete (0x2c) plen 17        #8     <- casa
+> HCI Event: Synchronous Connect Compl.. (0x2c) plen 17  #4193         <- NAO casa
+```
+
+Recontagem correta: **9 de 9, todas `Status: Success`.** O "45%" era artefato.
+Nada de errado no firmware.
+
+## 21. ERRO: patch P1 (eSCO-aware SCO count) — premissa falsa, causava dano
+
+O patch mais perigoso desta sessão inteira. Partiu da afirmação de que
+`hci_conn_num(hdev, SCO_LINK)` devolveria `0` para conexões eSCO.
+
+**Falso.** Em `include/net/bluetooth/hci_core.h`:
+```c
+case SCO_LINK:
+case ESCO_LINK:            /* fallthrough */
+        return h->sco_num; /* o MESMO contador */
+```
+Somar os dois = `2 * sco_num`. E `data->sco_num` é **índice da tabela
+`alts[3] = {2,4,5}`** em `btusb_work()` → com 1 conexão, P1 escolhia altsetting
+**4** em vez de **2**; com 2+, lia fora dos limites.
+
+Funcionava **por acidente** (dobrava o número e caía na tabela, gaindo um alt
+maior). Ao remover o P1 a captura foi a **zero bit-exato** — a prova.
+
+**Lição:** patch de kernel se verifica lendo `/lib/modules/$(uname -r)/build/`,
+nunca de memória.
+
+## 22. ERRO: medir microfone sem ninguém falando
+
+"3 de 5 capturas mudas" era o silêncio de um quarto vazio. `rms` baixo sem voz
+não é falha — é o sinal correto de um microfone funcionando em silêncio.
+
+**Lição:** só voz prova microfone. `scripts/qcy-mic-probe.sh` foi criado
+por causa disso (descarta a janela de 3 s e julga por amplitude).
+
+## 23. ERRO: daemon e timers próprios prendendo o perfil em HFP
+
+`scripts/qcy-mic-warm.sh` + `qcy-mic-warm.service` + **dois timers**
+(qcy-mic-warm.timer, qcy-mic-default.timer) que ressuscitavam um
+`pw-record --target bluez_input... --raw /dev/null` infinitamente. Com captura
+"ativa" o sistema — **corretamente** — nunca voltava para A2DP. Usuário
+relatou "fica preso no perfil handsfree".
+
+Além disso, `~/.local/state/wireplumber/bluetooth-autoswitch` tinha
+`saved-headset-profile:...=headset-head-unit`, o que fazia o WirePlumber
+restaurar HFP em cada reconexão.
+
+**Resolvido:** processos mortos, timers `disable`d, estado salvo para
+`a2dp-sink`. A troca de perfil agora é 100% nativa do WirePlumber
+(`bluetooth.autoswitch-to-headset-profile = true`) e validada nos dois sentidos.
+
+**Lição:** audite processos/timers próprios antes de culpar o stack de áudio.
+
+## 24. NÃO ERA: bug upstream WirePlumber 0.5.17 × kernel 7.2
+
+`wireplumber#1013` descreve exatamente "1 de 12 passa, só a primeira" em
+WP 0.5.17 com kernel 7.2, com o mesmo log `Failure in Bluetooth audio transport`.
+Workaround oficial: voltar para 0.5.15.
+
+**Testado aqui e NÃO se manifesta:** 3/3 ciclos A2DP↔HFP com áudio real
+capturado após a correção do altsetting. Não houve necessidade de downgradear
+o WirePlumber. Registrado para não gastar tempo com isso se reaparecer —
+e para saber que, se aparecer de novo, é aqui.
+
+## 25. NÃO ERA: COSMIC
+
+Suspeitei do `cosmic-applets-audio` (existem bugs reais dele: o slider mostra
+100% quando o volume real é 0%, e o applet re-estabelece streams de BT —
+`cosmic-settings#2018`, `cosmic-settings#536`).
+
+**Descartado:** `pactl get-default-source` aponta corretamente para
+`bluez_input.84:AC:60:05:55:2C`, e o teste acústico provou que o áudio chega
+ponta a ponta. Se um dia o slider do COSMIC mentir sobre o volume, aí sim.
+
+## 26. SOLUÇÃO: P3 — altsetting isocrônico do Barrot
+
+O Barrot não anuncia 2EV3 → `btusb_work()` escolhia **altsetting 1 (9 bytes)**
+para pacotes SCO CVSD de **60 bytes** → remontagem quebrada → `corrupted SCO`
+e áudio mudo **com o HCI reportando o link como perfeito**.
+
+Patch: flag `BTUSB_BROKEN_SCO_ALT` (BIT 30) que faz o Barrot usar a tabela
+`alts[3]` do próprio upstream → **altsetting 2 (17 bytes)**.
+
+Resultado: 3/3 ciclos com áudio capturado, `corrupted SCO` = 0. Detalhes e
+receita em `docs/KERNEL-BTUSB-BARROT.md`.

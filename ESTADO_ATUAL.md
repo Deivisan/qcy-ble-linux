@@ -1,6 +1,6 @@
 # Estado Atual — QCY H3S no Linux
 
-**Atualizado:** 25/09/2026 · **Status:** ✅ Controle SPP/RFCOMM · ✅ Música A2DP/AAC · ✅ **Mic validado por TRANSCRIÇÃO** · ✅ Protocolo documentado (72 Cmd IDs)
+**Atualizado:** 28/09/2026 · **Status:** ✅ Controle SPP/RFCOMM · ✅ Música A2DP/AAC · ✅ **Mic corrigido na raiz e validado** · ✅ Protocolo documentado (72 Cmd IDs)
 
 > ⚠️ Este arquivo mentia sobre o ambiente. Correções de 25/09/2026:
 > o sistema é **Arch Linux + COSMIC** com `linux-zen 7.2.7-zen1-1` — não é
@@ -13,22 +13,50 @@
 |--------|--------|
 | Controle fone | `bin/qcy-ctl` via SPP/RFCOMM (ANC, volume, música, game, LDAC) |
 | Perfil música | `a2dp-sink` (AAC) |
-| Perfil mic | `headset-head-unit` **CVSD 8 kHz** (mSBC descartado — item 15) |
-| **Kernel** | **`btusb 0.8-barrot1`** em `updates/dkms/` (patch eSCO count) |
+| Perfil mic | `headset-head-unit` **CVSD 8 kHz** (mSBC inatingível neste dongle) |
+| **Kernel** | **`btusb 0.8-barrot4`** em `updates/dkms/` (P2 SCO clássico + P3 altsetting) |
 | WirePlumber | `51-qcy-h3s-bt.conf` com `enable-msbc = false` |
-| Autoswitch | `bluetooth.autoswitch-to-headset-profile = true` |
+| Autoswitch | `bluetooth.autoswitch-to-headset-profile = true` — **nativo, sem daemon** |
 | COSMIC | default source estável em `bluez_input`; sem erro de áudio no journal |
 | Transcrição | `scripts/qcy-mic-transcribe.sh` (faster-whisper) — veredito real |
+| Sonda de mic | `scripts/qcy-mic-probe.sh` — mede amplitude depois da janela de 3 s |
 
-## Verificação do mic (25/09/2026) — por transcrição, não por volume
+## Correção do microfone (28/09/2026) — a que resolveu
 
-| Cenário | corrupted SCO | Áudio | Transcrição |
-|---------|---------------|-------|-------------|
-| CVSD (config atual) | 2–3 / 20–30s | voz | ✅ frase completa, inteligível |
-| mSBC | 9 812 / 25s | silêncio | `e e e e e e` (lixo) |
+**Causa raiz:** `drivers/bluetooth/btusb.c`, `btusb_work()`. O Barrot
+`33fa:0012` **não anuncia 2EV3** (`hdev->voice_setting & 0x0020 == 0`), então o
+kernel escolhia **altsetting USB 1 (9 bytes)** para pacotes SCO CVSD de
+**60 bytes**. A remontagem isócrona não fecha nesse endpoint.
 
-O transporte entrega **666 pacotes eSCO/s constantes, sem lacunas** (medido com
-`btmon`). Grava → transcreve → reproduz no fone: ciclo completo validado.
+**Fingerprint (o que faz parecer "saudável"):** `Synchronous Connect Complete:
+Status: Success`, ~600 pacotes SCO/s no ar e **zero mensagens de erro no
+kernel** — com o áudio chegando mudo ou como zumbido de ~100 Hz.
+
+**Correção:** o patch `btusb 0.8-barrot4` força o Barrot a usar a **mesma tabela
+de altsettings e o mesmo índice que o upstream usa no caminho 2EV3**
+(`alts[3] = {2,4,5}`) → **altsetting 2 (17 bytes)**. Mais `P2`, que faz o
+Barrot usar o comando SCO clássico `0x0028` em vez de `0x043d` — **é o que o
+driver do Windows faz**, com precedente upstream idêntico (`btmtk` MT6639,
+maio/2026).
+
+**Verificação, não confie só em eu dizer:**
+
+```bash
+cat /sys/module/btusb/version                              # 0.8-barrot4
+timeout 10 pw-record --target bluez_input.84_AC_60_05_55:2C /tmp/t.wav &
+sleep 3; cat /sys/bus/usb/devices/1-5:1.1/bAlternateSetting   # tem que ser 2
+dmesg | grep -c "corrupted SCO"                            # tem que ser 0
+```
+
+| Cenário (28/09/2026) | altsetting | corrupted SCO | Áudio |
+|----------------------|-----------|---------------|-------|
+| Antes do patch | 1 | centenas/s | mudo |
+| Depois (3 ciclos A2DP↔HFP) | **2** | **0** | **capturado 3/3** |
+
+Validação por **teste acústico diferencial** (tom de 1500 Hz no alto-falante do
+notebook, medido no mic do fone): energia na banda do tom subiu **×33.8** em
+relação ao silêncio, e os 3 ciclos seguidos deram ×17.9, ×16.2, ×5.6. Detalhes,
+teste e receita para outras máquinas em **`docs/KERNEL-BTUSB-BARROT.md`**.
 
 ## Ambiente real (verificado, não presumido)
 
@@ -36,6 +64,7 @@ O transporte entrega **666 pacotes eSCO/s constantes, sem lacunas** (medido com
 - Kernel: `linux-zen 7.2.7-zen1-1` · PipeWire 1.6.9 · WirePlumber 0.5.17 · BlueZ 5.87
 - Dongle: UGREEN Barrot `33fa:0012` (`hci0`), quirk `BTUSB_BARROT` upstream
 - Wi-Fi em 5 GHz (`wlp7s0`) — sem interferência 2.4 GHz
+
 
 ## Protocolo — engenharia reversa completa (16/08/2026)
 
