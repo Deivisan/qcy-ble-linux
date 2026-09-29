@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compila e instala btusb 0.8-barrot5 (Barrot legacy SCO) para o dongle
+# Compila e instala btusb 0.8-barrot6 (Barrot legacy SCO) para o dongle
 # UGREEN/Barrot 33fa:0012. Recriado em 25/09/2026 — o DKMS btusb-barrot que o
 # projeto usava em 2026-06 se perdeu na troca de distro/kernel (CachyOS -> Arch
 # + linux-zen). Ver docs/KERNEL-BTUSB-BARROT.md.
@@ -147,13 +147,51 @@ if t.count(flag_anchor) != 1:
     raise SystemExit("P3: ancora de defines nao encontrada")
 t = t.replace(flag_anchor, flag_anchor + "\n" + p3flag, 1)
 
+# A tabela {2,4,5} do ramo 2EV3 -> alt 2 = 17 bytes. NAO serve para o Barrot:
+# o pacote SCO CVSD que o controlador manda tem dlen 24 bytes, e o endpoint
+# isocrono de 1 ms precisa de wMaxPacketSize >= 24 para o pacote caber em UM
+# frame. A remontagem do btusb nao junta bytes entre frames, entao 17 bytes
+# gera "corrupted SCO packet" e o audio chega mudo.
+#
+# Descritores reais do EP 3 IN (bInterval 1 ms), lidos com `lsusb -v`:
+#     alt 1 =  9 bytes      alt 2 = 17 bytes
+#     alt 3 = 25 bytes   <-- cabe o dlen 24 do CVSD
+#     alt 4 = 33 bytes      alt 5 = 49 bytes
+#
+# Entao o Barrot precisa do indice 0 -> alt 3. Como a tabela {2,4,5} e
+# `static const` compartilhada com os chips 2EV3 reais, criamos uma tabela
+# exclusiva do Barrot em vez de alterar a global.
 p3old = """\t\tif (data->air_mode == HCI_NOTIFY_ENABLE_SCO_CVSD) {
-\t\t\tif (hdev->voice_setting & 0x0020) {"""
+\t\t\tif (hdev->voice_setting & 0x0020) {
+\t\t\t\tstatic const int alts[3] = { 2, 4, 5 };
+\t\t\t\tunsigned int sco_idx;
+
+\t\t\t\tsco_idx = min_t(unsigned int, data->sco_num - 1,
+\t\t\t\t\t\tARRAY_SIZE(alts) - 1);
+\t\t\t\tnew_alts = alts[sco_idx];
+\t\t\t} else {"""
 p3new = """\t\tif (data->air_mode == HCI_NOTIFY_ENABLE_SCO_CVSD) {
-\t\t\tif (hdev->voice_setting & 0x0020 ||
-\t\t\t    test_bit(BTUSB_BROKEN_SCO_ALT, &data->flags)) {"""
+\t\t\tif (hdev->voice_setting & 0x0020) {
+\t\t\t\tstatic const int alts[3] = { 2, 4, 5 };
+\t\t\t\tunsigned int sco_idx;
+
+\t\t\t\tsco_idx = min_t(unsigned int, data->sco_num - 1,
+\t\t\t\t\t\tARRAY_SIZE(alts) - 1);
+\t\t\t\tnew_alts = alts[sco_idx];
+\t\t\t} else if (test_bit(BTUSB_BROKEN_SCO_ALT, &data->flags)) {
+\t\t\t\t/* Barrot 33fa:0010/0012: CVSD = 24 bytes por frame de 1 ms,
+\t\t\t\t * logo exige o alt 3 (25 bytes). O alt 2 (17 bytes) que o
+\t\t\t\t * ramo 2EV3 escolheria nao cabe e gera "corrupted SCO".
+\t\t\t\t */
+\t\t\t\tstatic const int alts[3] = { 3, 4, 5 };
+\t\t\t\tunsigned int sco_idx;
+
+\t\t\t\tsco_idx = min_t(unsigned int, data->sco_num - 1,
+\t\t\t\t\t\tARRAY_SIZE(alts) - 1);
+\t\t\t\tnew_alts = alts[sco_idx];
+\t\t\t} else {"""
 if t.count(p3old) != 1:
-    raise SystemExit("P3: ancora do ramo CVSD nao encontrada")
+    raise SystemExit("P3: ancora do ramo CVSD/tabela nao encontrada (%d)" % t.count(p3old))
 t = t.replace(p3old, p3new, 1)
 
 # liga a flag no probe, junto dos outros flags de quirk
@@ -212,14 +250,15 @@ t = t.replace("""\t\tif (btusb_switch_alt_setting(hdev, new_alts) < 0)
 
 if t.count('#define VERSION "0.8"') != 1:
     raise SystemExit("VERSION nao encontrado")
-t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot5"', 1)
+t = t.replace('#define VERSION "0.8"', '#define VERSION "0.8-barrot6"', 1)
 open(p, "w").write(t)
-print("patches P2 (legacy SCO 0x0028) + P3 (CVSD alt>=2) aplicados -> 0.8-barrot5 | P1 removido")
+print("patches P2 (legacy SCO 0x0028) + P3 (CVSD alt>=2) aplicados -> 0.8-barrot6 | P1 removido")
 PY
-  grep -q "0.8-barrot5" "$work/btusb.c" || fail "VERSION barrot4 nao aplicada"
+  grep -q "0.8-barrot6" "$work/btusb.c" || fail "VERSION barrot6 nao aplicada"
   grep -q "btusb_sco_conn_count" "$work/btusb.c" && fail "P1 nao deveria existir"
   grep -q "BTUSB_BROKEN_SCO_ALT" "$work/btusb.c" || fail "P3 nao aplicou"
   grep -q "SCO altsetting:" "$work/btusb.c" || fail "P4 nao aplicou"
+  grep -q "static const int alts\[3\] = { 3, 4, 5 };" "$work/btusb.c" || fail "P3: tabela {3,4,5} (alt 3 = 25 bytes) nao aplicada"
   ok "btusb.c patcheado (P2 + P3)"
 }
 
@@ -251,8 +290,8 @@ install_mod() {
   ok "gate OK: modinfo aponta pro override"
   sudo modprobe -r btusb 2>/dev/null || fail "nao consegui remover btusb (deve estar em uso) — sem override carregado, estado intacto"
   sudo modprobe btusb
-  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot5" ]] || fail "versao em uso != 0.8-barrot5 (rollback manual pode ser necessario)"
-  ok "modulo 0.8-barrot5 carregado"
+  [[ "$(cat /sys/module/btusb/version)" == "0.8-barrot6" ]] || fail "versao em uso != 0.8-barrot6 (rollback manual pode ser necessario)"
+  ok "modulo 0.8-barrot6 carregado"
 }
 
 install_conf() {

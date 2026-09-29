@@ -19,13 +19,13 @@
 | | |
 |---|---|
 | **Sintoma** | Microfone do fone funciona e depois emudece. Pelo sistema aparece "saudável": perfil HFP ativo, `Synchronous Connect Complete: Status: Success`, ~600 pacotes SCO/s, **quase nenhum erro de kernel**. O áudio que chega é silêncio ou um zumbido de ~100 Hz. |
-| **Causa raiz 1** | `drivers/bluetooth/btusb.c`, função `btusb_work()`. O dongle **não anuncia 2EV3** (`hdev->voice_setting & 0x0020 == 0`), então o kernel escolhe **altsetting USB 1 = 9 bytes**. O tráfego real são 4 pacotes de `dlen 24` a cada 10 ms (8 kHz CVSD = 80 bytes/10 ms) — precisaria de 12 microframes de 1 ms em 10, **fisicamente impossível**. Áudio chega vazio. |
+| **Causa raiz 1** | `drivers/bluetooth/btusb.c`, função `btusb_work()`. O dongle **não anuncia 2EV3** (`hdev->voice_setting & 0x0020 == 0`), então o kernel escolhe **altsetting USB 1 = 9 bytes**. O controlador manda pacotes SCO CVSD de **24 bytes** (`dlen 24`, 4 a cada 10 ms = 8 kHz). O btusb entrega **um pacote SCO por frame isocrono de 1 ms** e **não junta bytes entre frames** — logo é preciso `wMaxPacketSize >= 24`. Com 9 bytes são necessários 12 frames por pacote: impossível. Áudio chega vazio. |
 | **Causa raiz 2** | `force_scofix=1` (nosso) mentia sobre os buffers do controlador: `hci_cc_read_buffer_size()` sobrescreve `sco_mtu` de **255 → 64** e `sco_pkts` **incondicionalmente**, sem checar se o valor é inválido. |
-| **Correção 1 (P3)** | Forçar o Barrot a usar a **mesma tabela de altsettings e o mesmo índice que o upstream usa no caminho 2EV3** (`alts[3] = {2,4,5}`) → **alt 2 (17 bytes)**, o valor correto e testado pelo commit do próprio dongle. |
+| **Correção 1 (P3)** | Tabela de altsettings **exclusiva do Barrot** com `alts[3] = { 3, 4, 5 }` → **alt 3 = 25 bytes**, o menor que comporta o pacote CVSD de 24 bytes. Não dá para reaproveitar a tabela `{2,4,5}` do ramo 2EV3: ela assume WBS/mSBC, e o alt 2 (17 bytes) é pequeno demais para CVSD. |
 | **Correção 2** | **`force_scofix=0`**. O Barrot reporta `sco_mtu = 255` corretamente; não precisa de correção. |
 | **Também (P2)** | `HCI_QUIRK_BROKEN_ENHANCED_SETUP_SYNC_CONN` → comando SCO clássico `0x0028` em vez de `0x043d`. É **o que o driver do Windows faz**. |
 | **Removido (P1)** | Patch "eSCO-aware SCO count" — premissa falsa, causava dano. Ver seção 6.2. |
-| **Resultado** | `btusb 0.8-barrot5`, `sco_mtu=255`, alt 2 durante SCO, 4/4 sessões com áudio real capturado, troca A2DP↔HFP automática. |
+| **Resultado** | `btusb 0.8-barrot6`, `sco_mtu=255`, **alt 3** durante SCO, 4/4 sessões com sinal forte (energia 1500 Hz entre 14 e 35, contra 0.017 antes), troca A2DP↔HFP automática. |
 
 
 ```bash
@@ -466,9 +466,23 @@ troca automática de perfil A2DP↔HFP em cada uma:
 
 **Sobre o dado no ar (medido com btmon):** o controlador envia 4 pacotes
 `dlen 24` a cada 10 ms = 80 bytes/10 ms = **8000 bytes/s = 8 kHz CVSD exato**.
-Com altsetting 1 (9 bytes) seriam necessários 12 microframes de 1 ms em cada
-janela de 10 ms — **fisicamente impossível**, e é por isso que o áudio não
-remontava. Com altsetting 2 (17 bytes) são 8 microframes: cabe.
+**A conta que fecha o caso** — altsettings do EP 3 IN (`bInterval` 1 ms):
+
+| alt | wMaxPacketSize | cabe o pacote de 24 B? |
+|-----|----------------|------------------------|
+| 1 | 9 B | não — precisaria de 3 frames por pacote, 12 em 10 ms |
+| 2 | 17 B | não — 2 frames por pacote, e o btusb **não** junta frames |
+| 3 | **25 B** | **sim — 1 frame por pacote** |
+| 4 | 33 B | sim (desnecessário) |
+| 5 | 49 B | sim (desnecessário) |
+
+É por isso que alt 1 e alt 2 dão silêncio, e só o **alt 3** funciona.
+
+**O `corrupted SCO packet` que continua aparecendo é cosmético.** O CVSD ocupa
+só ~40% dos frames de 1 ms (24 bytes a cada ~2,5 ms); os frames restantes vêm
+com tamanho zero e o btusb conta cada um como "corrupted". Medido: ~354/s,
+exatamente `600 frames/s × 60% ocioso`. O áudio passa limpo. **Não tente
+"consertar" esse contador.**
 
 ### 7.4 Um terceiro fator: transporte wedged no PipeWire
 

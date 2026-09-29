@@ -14,7 +14,7 @@
 | Controle fone | `bin/qcy-ctl` via SPP/RFCOMM (ANC, volume, música, game, LDAC) |
 | Perfil música | `a2dp-sink` (AAC) |
 | Perfil mic | `headset-head-unit` **CVSD 8 kHz** (mSBC inatingível neste dongle) |
-| **Kernel** | **`btusb 0.8-barrot5`** em `updates/dkms/` (P2 SCO clássico + P3 altsetting) |
+| **Kernel** | **`btusb 0.8-barrot6`** em `updates/dkms/` (P2 SCO clássico + P3 altsetting) |
 | WirePlumber | `51-qcy-h3s-bt.conf` com `enable-msbc = false` |
 | Autoswitch | `bluetooth.autoswitch-to-headset-profile = true` — **nativo, sem daemon** |
 | COSMIC | default source estável em `bluez_input`; sem erro de áudio no journal |
@@ -32,7 +32,7 @@ kernel escolhia **altsetting USB 1 (9 bytes)** para pacotes SCO CVSD de
 Status: Success`, ~600 pacotes SCO/s no ar e **zero mensagens de erro no
 kernel** — com o áudio chegando mudo ou como zumbido de ~100 Hz.
 
-**Correção:** o patch `btusb 0.8-barrot5` força o Barrot a usar a **mesma tabela
+**Correção:** o patch `btusb 0.8-barrot6` força o Barrot a usar a **mesma tabela
 de altsettings e o mesmo índice que o upstream usa no caminho 2EV3**
 (`alts[3] = {2,4,5}`) → **altsetting 2 (17 bytes)**. Mais `P2`, que faz o
 Barrot usar o comando SCO clássico `0x0028` em vez de `0x043d` — **é o que o

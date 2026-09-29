@@ -473,3 +473,49 @@ contador na troca de perfil.
 
 Diagnóstico: `systemctl --user restart pipewire pipewire-pulse wireplumber`
 (medido: energia saltou de 0.005 para 1.944 na sessão seguinte).
+
+## 30. ERRO: P3 apontava para alt 2 (17 bytes) — tinha que ser alt 3 (25 bytes)
+
+O P3 original fazia o Barrot entrar no ramo 2EV3 do driver, cuja tabela e
+`static const int alts[3] = { 2, 4, 5 }` — 1 conexao -> **alt 2 = 17 bytes**.
+
+Medi com `lsusb -v` e errei o raciocinio: *"CVSD precisa de ~12 bytes por
+frame, 17 cabe"*. Errado. O btusb entrega **um pacote SCO por frame isocrono
+de 1 ms e NAO junta bytes de frames diferentes**. Entao o requisito nao e
+"cabe o media", e "cabe o pacote INTEIRO":
+
+    wMaxPacketSize >= dlen_do_pacote_SCO = 24
+
+  alt 1 (9 B)  -> 3 frames por pacote -> 12 frames em 10 ms: impossivel
+  alt 2 (17 B) -> 2 frames por pacote -> o btusb descarta o resto
+  alt 3 (25 B) -> 1 frame por pacote -> CORRETO
+
+A tabela {2,4,5} do upstream assume **WBS/mSBC**; para CVSD ela simply esta
+errada. Como e `static const` compartilhada com chips 2EV3 reais, o P3 final
+cria uma tabela **exclusiva do Barrot**: `alts[3] = { 3, 4, 5 }`.
+
+Prova (mesmo teste acustico, tom de 1500 Hz no notebook, gravado no mic):
+
+    alt 2 (17 B) -> energia 0.017, 88% dos samples eram zero exato -> MUDO
+    alt 3 (25 B) -> energia 14.816, 37% zeros                   -> CAPTOU
+
+**Quase 870x de diferenca.** Depois 3 sessoes seguidas: 35.2 / 20.9 / 14.2.
+
+**Por que demorei tanto:** eu tinha "corrigido" o bug do altsetting duas vezes
+antes (P1 com `sco_num`, P3 com alt 2) e em ambas validei pelo **caminho do
+driver** (qual altsetting o codigo escolhe) em vez do **caminho do hardware**
+(quantos bytes o endpoint tem). Ler `lsusb -v` teria resolvido na primeira hora.
+
+## 31. P2 (SCO classico 0x0028) E NECESSARIO — medido
+
+A/B feito desligando so o P2, com o resto igual:
+
+    P2 ligado  -> BR-ESCO no ar: ~650 pkt/s, audio (com corrupcao)
+    P2 desligado -> BR-ESCO no ar: 0 pkt/s, silencio total
+
+Ou seja, o Enhanced Setup SCO (0x043d) Creates o link mas **nao vem dado
+nenhum**. O dongle so entrega SCO com o comando classico `0x0028`, igual ao
+driver do Windows. Isso confirma o precedente do btmtk MT6639.
+
+Corolario: "P2 esta errado porque nao ha evidencia" era argumento fraco — ha
+evidencia forte e ela e a favor dele.
